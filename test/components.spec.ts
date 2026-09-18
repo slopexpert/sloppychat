@@ -269,7 +269,8 @@ describe('ToolCallCard icons', () => {
 	it('gives each tool the shape that matches it', () => {
 		const icon = (name: string, args: Record<string, unknown> = {}) =>
 			render(ToolCallCard, { props: { call: { id: 'c', name, args } } }).body;
-		expect(icon('read_skill', { name: 'release-notes' })).toContain('M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5');
+		// The skill wears an open book, not the two panels it had before.
+		expect(icon('read_skill', { name: 'release-notes' })).toContain('M12 7v14');
 		expect(icon('web_search', { query: 'x' })).toContain('<circle cx="11" cy="11" r="6"/>');
 		expect(icon('web_fetch', { url: 'https://example.com' })).toContain('<circle cx="12" cy="12" r="8"/>');
 		// A name nobody knows keeps the tools mark.
