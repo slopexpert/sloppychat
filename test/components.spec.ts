@@ -2,10 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import Icon from '$lib/components/Icon.svelte';
 import ToolList from '$lib/components/ToolList.svelte';
+import ToolCallCard from '$lib/components/ToolCallCard.svelte';
 import Markdown from '$lib/components/Markdown.svelte';
 import MessageItem from '$lib/components/MessageItem.svelte';
 import { ICONS } from '$lib/shared/icons';
 import { TOOL_CATALOG } from '$lib/shared/tools';
+import { app } from '$lib/client/state.svelte';
 import type { Message } from '$lib/shared/types';
 
 /** Server rendering keeps the components honest without a browser. */
@@ -227,5 +229,50 @@ describe('ToolList', () => {
 		expect(body).not.toContain('>Search<');
 		expect(body).not.toContain('>Skill<');
 		expect(body).not.toContain('>Fetch<');
+	});
+});
+
+describe('ToolCallCard icons', () => {
+	const mcpTool = {
+		id: 'sample_add',
+		serverId: 's1',
+		serverName: 'sample',
+		name: 'add',
+		description: 'Add two numbers.',
+		parameters: {}
+	};
+
+	it('wears the protocol mark for a tool an MCP server owns', () => {
+		app.mcpServers = [
+			{
+				id: 's1',
+				name: 'sample',
+				enabled: true,
+				config: { transport: 'stdio', command: 'node' },
+				status: 'ready',
+				tools: [mcpTool],
+				createdAt: '',
+				updatedAt: ''
+			}
+		];
+		try {
+			const { body } = render(ToolCallCard, { props: { call: { id: 'c1', name: 'sample_add', args: {} } } });
+			// The mark is a filled shape, so it is drawn without a stroke.
+			expect(body).toContain('M13.85 0a4.16');
+			expect(body).toContain('fill="currentColor"');
+			expect(body).toContain('stroke="none"');
+		} finally {
+			app.mcpServers = [];
+		}
+	});
+
+	it('gives each tool the shape that matches it', () => {
+		const icon = (name: string, args: Record<string, unknown> = {}) =>
+			render(ToolCallCard, { props: { call: { id: 'c', name, args } } }).body;
+		expect(icon('read_skill', { name: 'release-notes' })).toContain('M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5');
+		expect(icon('web_search', { query: 'x' })).toContain('<circle cx="11" cy="11" r="6"/>');
+		expect(icon('web_fetch', { url: 'https://example.com' })).toContain('<circle cx="12" cy="12" r="8"/>');
+		// A name nobody knows keeps the tools mark.
+		expect(icon('something-else')).toContain('M14.7 6.3a1 1');
 	});
 });

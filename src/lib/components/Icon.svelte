@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { ICONS, type IconName } from '$lib/shared/icons';
+	import { FILLED_ICONS, ICONS, type IconName } from '$lib/shared/icons';
 
 	/**
 	 * Stroke icon that inherits the current text colour, so buttons style it for
-	 * free. The inner markup is a trusted constant from icons.ts.
+	 * free. The inner markup is a trusted constant from icons.ts. A mark whose
+	 * artwork is a filled outline is drawn without a stroke instead.
 	 */
 
 	let {
@@ -19,14 +20,16 @@
 		spin?: boolean;
 		class?: string;
 	} = $props();
+
+	const filled = $derived(FILLED_ICONS.has(name));
 </script>
 
 <svg
 	viewBox="0 0 24 24"
 	width={size}
 	height={size}
-	fill="none"
-	stroke="currentColor"
+	fill={filled ? 'currentColor' : 'none'}
+	stroke={filled ? 'none' : 'currentColor'}
 	stroke-width={stroke}
 	stroke-linecap="round"
 	stroke-linejoin="round"

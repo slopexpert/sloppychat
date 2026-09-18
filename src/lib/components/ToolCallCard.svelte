@@ -3,6 +3,7 @@
 	import { TOOL_CATALOG, toolSummary } from '$lib/shared/tools';
 	import type { ToolCall } from '$lib/shared/types';
 	import type { ToolProgress } from '$lib/client/tools';
+	import type { IconName } from '$lib/shared/icons';
 	import { app } from '$lib/client/state.svelte';
 
 	let {
@@ -33,7 +34,17 @@
 
 	let open = $state(false);
 
-	const toolIcon = $derived(call.name === 'web_search' ? 'search' : 'globe');
+	/**
+	 * The icon of a card: the protocol mark for a tool that an MCP server owns,
+	 * a book for a skill, and the shape that matches the web tools.
+	 */
+	const toolIcon = $derived.by((): IconName => {
+		if (call.name === 'web_search') return 'search';
+		if (call.name === 'web_fetch') return 'globe';
+		if (call.name === 'read_skill') return 'book';
+		if (app.mcpTools.some((tool) => tool.id === call.name)) return 'mcp';
+		return 'wrench';
+	});
 </script>
 
 <div class="card overflow-hidden text-sm">
