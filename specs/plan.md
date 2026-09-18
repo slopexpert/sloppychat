@@ -10,7 +10,7 @@ In scope:
 - Exact token counts for llama.cpp and vLLM.
 - An MCP client in the app, so the model gets the tools of an MCP server.
 - Branches for the messages and a Continue action.
-- Search across the chats, folders, tags, and pins.
+- Search across the chats, folders, and tags.
 - An installable app (PWA).
 
 Out of scope. You said no to the features below:
@@ -74,11 +74,11 @@ Work: Add `parent_id` to the messages and an active leaf to each conversation. A
 Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/lib/server/bridge.ts`, `src/routes/api/conversations/[id]/+server.ts`, `src/lib/components/MessageItem.svelte`, `src/lib/client/state.svelte.ts`.
 Test: A migration test on a database with one chat. A test for the brothers and for the switch between them. A test for Continue after the length limit, which grows the same row.
 
-## Step 8. Add search, folders, tags, and pins
+## Step 8. Add search, folders, and tags
 Goal: find an old chat fast, and put the chats in groups.
-Work: Add an FTS5 table for the message text and the chat titles, with triggers that keep the table in step. Add a search box in the sidebar and the shortcut `Ctrl+K`. A hit opens the chat at the correct message. Add folders, tags, and pins. Drag a chat onto a folder to move the chat into the folder. Drag a chat onto another chat to make a folder with the two chats. Drag a chat out of a folder to keep the chat in the list of chats. A pinned chat stays at the top of the list. Each drag action has a keyboard equivalent, because a drag alone is not accessible.
+Work: Add an FTS5 table for the message text and the chat titles, with triggers that keep the table in step. Add a search box in the sidebar and the shortcut `Ctrl+K`. A hit opens the chat at the correct message. Add folders and tags. Drag a chat onto a folder to move the chat into the folder. Drag a chat onto another chat to make a folder with the two chats. Drag a chat out of a folder to keep the chat in the list of chats.
 Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/routes/api/conversations/+server.ts`, `src/routes/api/search/chats/+server.ts` (new), `src/lib/components/Sidebar.svelte`, `src/lib/components/ChatSearch.svelte` (new).
-Test: A test for the triggers of the FTS table. A test for the move to a folder. Component tests for the drag handlers. An accessibility test for the keyboard path.
+Test: A test for the triggers of the FTS table. A test for the move to a folder. A test for the action behind a drop, and a render test for the list itself.
 
 ## Step 9. Add the installable app
 Goal: the app runs from the home screen of a telephone.

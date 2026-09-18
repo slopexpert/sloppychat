@@ -24,7 +24,8 @@
 		onEdit,
 		onDelete,
 		onBranch,
-		onContinue
+		onContinue,
+		highlighted = false
 	}: {
 		message: Message;
 		toolResults: Record<string, { text: string; isError: boolean }>;
@@ -42,6 +43,8 @@
 		onBranch?: (messageId: string) => void;
 		/** Carries an answer on when it stopped at the length limit. */
 		onContinue?: (messageId: string) => void;
+		/** True while this message is the one a search hit asked for. */
+		highlighted?: boolean;
 	} = $props();
 
 	let editing = $state(false);
@@ -118,7 +121,10 @@
 {/snippet}
 
 {#if message.role === 'user'}
-	<div class="group flex justify-end">
+	<div
+		id="message-{message.id}"
+		class="group flex justify-end {highlighted ? 'rounded-card ring-2 ring-accent/40' : ''}"
+	>
 		<div class="max-w-[85%] space-y-2">
 			{#if message.documents?.length}
 				<div class="flex flex-wrap justify-end gap-2">
@@ -227,7 +233,10 @@
 		</div>
 	</div>
 {:else if message.role === 'assistant'}
-	<div class="group space-y-2">
+	<div
+		id="message-{message.id}"
+		class="group space-y-2 {highlighted ? 'rounded-card ring-2 ring-accent/40' : ''}"
+	>
 		{#if message.reasoning}
 			<div>
 				<button

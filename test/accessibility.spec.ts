@@ -57,7 +57,8 @@ function attribute(candidate: Candidate, name: string): string | undefined {
 
 const original = {
 	ready: app.ready,
-	conversation: app.conversation
+	conversation: app.conversation,
+	conversations: app.conversations
 };
 
 beforeEach(() => {
@@ -74,11 +75,15 @@ beforeEach(() => {
 		createdAt: new Date(0).toISOString(),
 		updatedAt: new Date(0).toISOString()
 	};
+	// One row in the list, so the sidebar has something to show.
+	app.conversations = [app.conversation];
+	app.folders = [];
 });
 
 afterAll(() => {
 	app.ready = original.ready;
 	app.conversation = original.conversation;
+	app.conversations = original.conversations;
 });
 
 describe('first text field for Tridactyl gi', () => {
@@ -298,6 +303,17 @@ describe('page structure', () => {
 		expect(card).not.toContain('Shift+Enter adds a line<');
 		// The hint stays reachable as the tooltip of the message box.
 		expect(body).toContain('title="Enter sends, Shift+Enter adds a line"');
+	});
+
+	it('gives the chat list a search box, folders and a way to move without a drag', () => {
+		const { body } = render(Page);
+		expect(body).toContain('aria-label="Search chats"');
+		expect(body).toContain('aria-label="New folder"');
+		// The group that holds the chats that are in no folder.
+		expect(body).toContain('aria-label="Chats"');
+		// A row belongs to a folder by being dragged onto it.
+		expect(body).toContain('draggable="true"');
+		expect(body).toContain('aria-label="Rename chat"');
 	});
 
 	it('holds the tools menu in the top bar', () => {

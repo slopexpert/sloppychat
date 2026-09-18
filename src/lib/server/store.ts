@@ -1,5 +1,5 @@
 import { all, newId, now, one, run, tx } from './db';
-import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type Conversation, type McpServer, type McpServerConfig, type Message, type Provider, type QueuedMessage, type Settings } from '$lib/shared/types';
+import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type ChatHit, type Conversation, type Folder, type McpServer, type McpServerConfig, type Message, type Provider, type QueuedMessage, type Settings } from '$lib/shared/types';
 import { migrateToolModes } from '$lib/shared/tools';
 import type { Skill } from '$lib/shared/skills';
 
@@ -163,6 +163,8 @@ function mapConversation(row: Row): Conversation {
 		system: text(row.system),
 		params: json<Conversation['params']>(row.params, {}),
 		activeLeafId: text(row.active_leaf_id),
+		folderId: text(row.folder_id),
+		tags: json<string[]>(row.tags, []),
 		createdAt: str(row.created_at),
 		updatedAt: str(row.updated_at),
 		messageCount: num(row.message_count)
@@ -205,13 +207,16 @@ export function updateConversation(id: string, patch: Partial<Conversation>): Co
 	if (!current) return undefined;
 	const next = { ...current, ...patch };
 	run(
-		`UPDATE conversations SET title = ?, provider_id = ?, model = ?, system = ?, params = ?, updated_at = ?
+		`UPDATE conversations SET title = ?, provider_id = ?, model = ?, system = ?, params = ?,
+		 folder_id = ?, tags = ?, updated_at = ?
 		 WHERE id = ?`,
 		next.title,
 		next.providerId ?? null,
 		next.model ?? null,
 		next.system ?? null,
 		JSON.stringify(next.params ?? {}),
+		next.folderId ?? null,
+		JSON.stringify(normalizeTags(next.tags ?? [])),
 		now(),
 		id
 	);
@@ -351,6 +356,159 @@ export function clearQueued(conversationId: string): number {
 	const count = listQueued(conversationId).length;
 	run('DELETE FROM queued_messages WHERE conversation_id = ?', conversationId);
 	return count;
+}
+
+/* ------------------------------------------------------------ the folders -- */
+
+function mapFolder(row: Row): Folder {
+	return {
+		id: str(row.id),
+		name: str(row.name, 'Folder'),
+		sort: num(row.sort) ?? 0,
+		createdAt: str(row.created_at)
+	};
+}
+
+export function listFolders(): Folder[] {
+	return all('SELECT * FROM folders ORDER BY sort, name COLLATE NOCASE').map(mapFolder);
+}
+
+export function getFolder(id: string): Folder | undefined {
+	const row = one('SELECT * FROM folders WHERE id = ?', id);
+	return row ? mapFolder(row) : undefined;
+}
+
+export function createFolder(name: string): Folder {
+	const id = newId();
+	const sortRow = one('SELECT COALESCE(MAX(sort), 0) AS sort FROM folders');
+	const sort = typeof sortRow?.sort === 'number' ? sortRow.sort + 1 : 1;
+	run(
+		'INSERT INTO folders (id, name, sort, created_at) VALUES (?, ?, ?, ?)',
+		id,
+		name.trim().slice(0, 60) || 'Folder',
+		sort,
+		now()
+	);
+	return getFolder(id)!;
+}
+
+export function renameFolder(id: string, name: string): Folder | undefined {
+	const current = getFolder(id);
+	if (!current) return undefined;
+	run('UPDATE folders SET name = ? WHERE id = ?', name.trim().slice(0, 60) || current.name, id);
+	return getFolder(id);
+}
+
+/** Removes a folder. Its chats stay, and go back to the plain list. */
+export function deleteFolder(id: string): number {
+	const chats = all('SELECT id FROM conversations WHERE folder_id = ?', id).length;
+	run('UPDATE conversations SET folder_id = NULL WHERE folder_id = ?', id);
+	run('DELETE FROM folders WHERE id = ?', id);
+	return chats;
+}
+
+/** Puts a chat in a folder, or back in the plain list when folderId is null. */
+export function moveConversation(id: string, folderId: string | null): Conversation | undefined {
+	if (!getConversation(id)) return undefined;
+	run('UPDATE conversations SET folder_id = ? WHERE id = ?', folderId, id);
+	return getConversation(id);
+}
+
+/**
+ * Makes a folder that holds the chat that was dragged and the one it was dropped
+ * on, which is how a folder is made without a dialog.
+ */
+export function mergeIntoFolder(chatId: string, ontoChatId: string): Folder | undefined {
+	const dragged = getConversation(chatId);
+	const target = getConversation(ontoChatId);
+	if (!dragged || !target || dragged.id === target.id) return undefined;
+	const folder = target.folderId ? getFolder(target.folderId) : createFolder(target.title);
+	if (!folder) return undefined;
+	run('UPDATE conversations SET folder_id = ? WHERE id IN (?, ?)', folder.id, dragged.id, target.id);
+	return folder;
+}
+
+export function setTags(id: string, tags: string[]): Conversation | undefined {
+	if (!getConversation(id)) return undefined;
+	run('UPDATE conversations SET tags = ? WHERE id = ?', JSON.stringify(normalizeTags(tags)), id);
+	return getConversation(id);
+}
+
+/** Tags are lower case, without duplicates, and short. */
+export function normalizeTags(tags: string[]): string[] {
+	const seen = new Set<string>();
+	for (const tag of tags) {
+		const clean = tag.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 24);
+		if (clean) seen.add(clean);
+	}
+	return [...seen];
+}
+
+/* ------------------------------------------------------------- the search -- */
+
+/** The words of a search, quoted so FTS5 reads them as text and not as syntax. */
+function ftsQuery(text: string): string {
+	return (text.match(/[^\s"]+/g) ?? [])
+		.slice(0, 8)
+		.map((word) => `"${word.replace(/"/g, '')}"`)
+		.join(' ');
+}
+
+/** The chats whose title or messages match, best first, with one line each. */
+export function searchChats(text: string, limit = 30): ChatHit[] {
+	const query = ftsQuery(text);
+	if (!query) return [];
+	const hits = new Map<string, ChatHit>();
+	for (const row of all(
+		`SELECT m.conversation_id AS conversation_id, m.id AS message_id,
+		        snippet(messages_fts, 0, '[', ']', ' ... ', 14) AS snippet
+		 FROM messages_fts
+		 JOIN messages m ON m.rowid = messages_fts.rowid
+		 WHERE messages_fts MATCH ?
+		 ORDER BY bm25(messages_fts)
+		 LIMIT 200`,
+		query
+	)) {
+		const conversationId = str(row.conversation_id);
+		const existing = hits.get(conversationId);
+		if (existing) {
+			existing.hits += 1;
+			continue;
+		}
+		const conversation = getConversation(conversationId);
+		if (!conversation) continue;
+		hits.set(conversationId, {
+			conversationId,
+			title: conversation.title,
+			updatedAt: conversation.updatedAt,
+			messageId: str(row.message_id),
+			snippet: str(row.snippet),
+			hits: 1
+		});
+	}
+	for (const row of all(
+		`SELECT c.id AS conversation_id, c.title, c.updated_at
+		 FROM chats_fts JOIN conversations c ON c.rowid = chats_fts.rowid
+		 WHERE chats_fts MATCH ?
+		 ORDER BY bm25(chats_fts)
+		 LIMIT 20`,
+		query
+	)) {
+		const conversationId = str(row.conversation_id);
+		const existing = hits.get(conversationId);
+		if (existing) {
+			existing.hits += 1;
+			continue;
+		}
+		hits.set(conversationId, {
+			conversationId,
+			title: str(row.title),
+			updatedAt: str(row.updated_at),
+			snippet: 'The title matches',
+			hits: 1
+		});
+	}
+	return [...hits.values()].slice(0, limit);
 }
 
 /* ---------------------------------------------------------------- mcp ----- */

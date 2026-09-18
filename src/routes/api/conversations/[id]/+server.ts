@@ -29,8 +29,9 @@ export const PATCH = (async ({ params, request }) => {
 	if (patch.model !== undefined) clean.model = patch.model || null;
 	if (patch.system !== undefined) clean.system = patch.system || null;
 	if (patch.params !== undefined) clean.params = patch.params ?? {};
-	const updated = updateConversation(params.id, clean);
-	return Response.json({ conversation: updated });
+	if (patch.folderId !== undefined) clean.folderId = patch.folderId || null;
+	if (patch.tags !== undefined) clean.tags = Array.isArray(patch.tags) ? patch.tags : [];
+	return Response.json({ conversation: updateConversation(params.id, clean) });
 }) satisfies RequestHandler;
 
 export const DELETE = (async ({ params }) => {

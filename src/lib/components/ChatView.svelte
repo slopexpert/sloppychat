@@ -69,6 +69,17 @@
 		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 140;
 	}
 
+	// A search hit asks for one message: the view scrolls to it, and stops
+	// following the bottom while the reader looks at it.
+	$effect(() => {
+		const wanted = app.focusMessageId;
+		if (!wanted) return;
+		pinned = false;
+		requestAnimationFrame(() => {
+			document.getElementById(`message-${wanted}`)?.scrollIntoView({ block: 'center' });
+		});
+	});
+
 	// Follow the stream while the user stays at the bottom.
 	$effect(() => {
 		const last = visible[visible.length - 1];
@@ -116,6 +127,7 @@
 				onDelete={() => app.deleteFrom(message.id)}
 				onBranch={(id) => app.openBranch(id)}
 				onContinue={(id) => app.continueAnswer(id)}
+				highlighted={message.id === app.focusMessageId}
 			/>
 		{/each}
 	</div>

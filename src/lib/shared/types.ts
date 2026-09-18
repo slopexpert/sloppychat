@@ -153,9 +153,34 @@ export interface Conversation {
 	params: Partial<GenerationParams>;
 	/** The message the view follows, which is the end of one branch. */
 	activeLeafId?: string | null;
+	/** The folder this chat sits in, when it sits in one. */
+	folderId?: string | null;
+	/** Free labels for the chat, used by the filter. */
+	tags?: string[];
 	createdAt: string;
 	updatedAt: string;
 	messageCount?: number;
+}
+
+/** A group of chats in the list. */
+export interface Folder {
+	id: string;
+	name: string;
+	sort: number;
+	createdAt: string;
+}
+
+/** One result of a chat search, with the best line that matched. */
+export interface ChatHit {
+	conversationId: string;
+	title: string;
+	updatedAt: string;
+	/** The message to open, when the match came from a message. */
+	messageId?: string;
+	/** The matching text with the search terms marked with brackets. */
+	snippet: string;
+	/** How many messages of this chat matched. */
+	hits: number;
 }
 
 export interface Provider {

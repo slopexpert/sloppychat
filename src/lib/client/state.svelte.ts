@@ -2,7 +2,9 @@ import {
 	DEFAULT_PARAMS,
 	DEFAULT_SETTINGS,
 	DEFAULT_THEME,
+	type ChatHit,
 	type Conversation,
+	type Folder,
 	type McpServerConfig,
 	type McpServerState,
 	type McpToolInfo,
@@ -95,6 +97,17 @@ export class AppState {
 	toasts = $state<Toast[]>([]);
 	/** Messages typed while a turn was streaming, sent in order afterwards. */
 	queued = $state<QueuedMessage[]>([]);
+	/** The search over the chats, and the folders of the list. */
+	searchQuery = $state('');
+	searchHits = $state<ChatHit[]>([]);
+	searching = $state(false);
+	folders = $state<Folder[]>([]);
+	/** Which folders are open. A folder starts open. */
+	openFolders = $state<Record<string, boolean>>({});
+	/** The message a search hit asked for, which the view scrolls to. */
+	focusMessageId = $state<string | null>(null);
+	#searchTimer: ReturnType<typeof setTimeout> | undefined;
+
 	/** The MCP servers with their state and their tools. */
 	mcpServers = $state<McpServerState[]>([]);
 	mcpLoading = $state(false);
@@ -167,6 +180,7 @@ export class AppState {
 			this.providers = providers.providers;
 			this.conversations = conversations.conversations;
 			void this.refreshSkills();
+			void this.refreshFolders();
 			// The MCP servers are opened once the app has its settings.
 			void this.refreshMcp();
 			applyTheme(settings.theme);
@@ -305,7 +319,7 @@ export class AppState {
 		replaceState(url, {});
 	}
 
-	async open(id: string): Promise<void> {
+	async open(id: string, messageId?: string): Promise<void> {
 		// Switching chats only stops this page from watching, the turn runs on.
 		if (this.running) this.detach();
 		try {
@@ -315,6 +329,8 @@ export class AppState {
 			this.queued = queued ?? [];
 			this.toolProgress = {};
 			this.#rememberConversation(conversation.id);
+			// A search hit asks for one message, which the view scrolls to.
+			this.focusMessageId = messageId ?? null;
 			// The gauge shows the exact prompt count when the provider can give it.
 			void this.refreshContextExact();
 			// An older chat may predate model discovery.
@@ -414,6 +430,111 @@ export class AppState {
 		// A trailing user or tool message means no answer was ever produced.
 		if (last.role === 'user' || last.role === 'tool') {
 			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
+		}
+	}
+
+	/**
+	 * The chats of one folder. A pinned chat stays here as well as in the pinned
+	 * group, so the count of a folder matches what the folder shows.
+	 */
+	chatsIn(folderId: string): Conversation[] {
+		return this.conversations.filter((item) => item.folderId === folderId);
+	}
+
+	/** The chats that are in no folder. */
+	get looseChats(): Conversation[] {
+		return this.conversations.filter((item) => !item.folderId);
+	}
+
+	async refreshFolders(): Promise<void> {
+		try {
+			const { folders } = await api.listFolders();
+			this.folders = folders;
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	/** Searches the chats a moment after the last key, so typing stays smooth. */
+	searchChats(text: string): void {
+		this.searchQuery = text;
+		clearTimeout(this.#searchTimer);
+		const query = text.trim();
+		if (!query) {
+			this.searchHits = [];
+			this.searching = false;
+			return;
+		}
+		this.searching = true;
+		this.#searchTimer = setTimeout(() => void this.#runSearch(query), 180);
+	}
+
+	async #runSearch(query: string): Promise<void> {
+		try {
+			const { hits } = await api.searchChats(query);
+			// A slow answer for an older query must not replace a newer one.
+			if (this.searchQuery.trim() !== query) return;
+			this.searchHits = hits;
+		} catch (err) {
+			this.toast('error', errorText(err));
+		} finally {
+			if (this.searchQuery.trim() === query) this.searching = false;
+		}
+	}
+
+	clearSearch(): void {
+		clearTimeout(this.#searchTimer);
+		this.searchQuery = '';
+		this.searchHits = [];
+		this.searching = false;
+	}
+
+	/** Puts a chat in a folder, or back in the plain list. */
+	async moveChat(chatId: string, folderId: string | null): Promise<void> {
+		try {
+			await api.updateConversation(chatId, { folderId });
+			await this.refreshConversations();
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	/** One chat dropped on another: both go into one folder. */
+	async mergeChats(chatId: string, ontoChatId: string): Promise<void> {
+		try {
+			const { folder } = await api.mergeFolders(chatId, ontoChatId);
+			this.openFolders = { ...this.openFolders, [folder.id]: true };
+			await Promise.all([this.refreshFolders(), this.refreshConversations()]);
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	async addFolder(name: string): Promise<void> {
+		try {
+			const { folder } = await api.createFolder(name);
+			this.openFolders = { ...this.openFolders, [folder.id]: true };
+			await this.refreshFolders();
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	async renameFolder(id: string, name: string): Promise<void> {
+		try {
+			await api.renameFolder(id, name);
+			await this.refreshFolders();
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	async deleteFolder(id: string): Promise<void> {
+		try {
+			await api.deleteFolder(id);
+			await Promise.all([this.refreshFolders(), this.refreshConversations()]);
+		} catch (err) {
+			this.toast('error', errorText(err));
 		}
 	}
 

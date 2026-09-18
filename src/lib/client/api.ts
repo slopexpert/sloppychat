@@ -1,7 +1,9 @@
 import type { Skill } from '$lib/shared/skills';
 import type {
+	ChatHit,
 	Conversation,
 	DocumentRef,
+	Folder,
 	GenerationParams,
 	ImageRef,
 	McpServer,
@@ -73,6 +75,22 @@ export const api = {
 			body: JSON.stringify(patch)
 		}),
 	deleteConversation: (id: string) => request<{ ok: true }>(`/api/conversations/${id}`, { method: 'DELETE' }),
+
+	/** Chats whose title or messages match, best first. */
+	searchChats: (query: string) =>
+		request<{ query: string; hits: ChatHit[] }>(`/api/search/chats?q=${encodeURIComponent(query)}`),
+
+	listFolders: () => request<{ folders: Folder[] }>('/api/folders'),
+	createFolder: (name: string) =>
+		request<{ folder: Folder }>('/api/folders', { method: 'POST', body: JSON.stringify({ name }) }),
+	renameFolder: (id: string, name: string) =>
+		request<{ folder: Folder }>(`/api/folders/${id}`, { method: 'PATCH', body: JSON.stringify({ name }) }),
+	deleteFolder: (id: string) => request<{ unfiled: number }>(`/api/folders/${id}`, { method: 'DELETE' }),
+	mergeFolders: (chatId: string, ontoChatId: string) =>
+		request<{ folder: Folder }>('/api/folders/merge', {
+			method: 'POST',
+			body: JSON.stringify({ chatId, ontoChatId })
+		}),
 
 	/** MCP servers, their state and their tools. */
 	listMcpServers: (refresh = false) =>

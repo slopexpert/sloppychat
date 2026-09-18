@@ -81,6 +81,48 @@ CREATE TABLE IF NOT EXISTS skills (
 	updated_at  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+	key   TEXT PRIMARY KEY,
+	value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS folders (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	sort       INTEGER NOT NULL DEFAULT 0,
+	created_at TEXT NOT NULL
+);
+
+/**
+ * Full text search over the chat titles and the message text. The indexes hold
+ * no copy of the text: they point at the tables, and the triggers below keep
+ * them in step on every insert, update and delete.
+ */
+CREATE VIRTUAL TABLE IF NOT EXISTS chats_fts USING fts5(title, content='conversations', content_rowid='rowid');
+CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(text, content='messages', content_rowid='rowid');
+
+CREATE TRIGGER IF NOT EXISTS conversations_fts_insert AFTER INSERT ON conversations BEGIN
+	INSERT INTO chats_fts (rowid, title) VALUES (new.rowid, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS conversations_fts_update AFTER UPDATE OF title ON conversations BEGIN
+	INSERT INTO chats_fts (chats_fts, rowid, title) VALUES ('delete', old.rowid, old.title);
+	INSERT INTO chats_fts (rowid, title) VALUES (new.rowid, new.title);
+END;
+CREATE TRIGGER IF NOT EXISTS conversations_fts_delete AFTER DELETE ON conversations BEGIN
+	INSERT INTO chats_fts (chats_fts, rowid, title) VALUES ('delete', old.rowid, old.title);
+END;
+
+CREATE TRIGGER IF NOT EXISTS messages_fts_insert AFTER INSERT ON messages BEGIN
+	INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_update AFTER UPDATE OF text ON messages BEGIN
+	INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+	INSERT INTO messages_fts (rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER IF NOT EXISTS messages_fts_delete AFTER DELETE ON messages BEGIN
+	INSERT INTO messages_fts (messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+END;
+
 CREATE TABLE IF NOT EXISTS settings (
 	id   INTEGER PRIMARY KEY CHECK (id = 1),
 	data TEXT NOT NULL
@@ -157,6 +199,26 @@ function migrate(sqlite: DatabaseSync): void {
 			`UPDATE conversations SET active_leaf_id = (
 				SELECT id FROM messages WHERE messages.conversation_id = conversations.id ORDER BY seq DESC LIMIT 1
 			)`
+		);
+	}
+	if (!columns.some((column) => column.name === 'folder_id')) {
+		sqlite.exec('ALTER TABLE conversations ADD COLUMN folder_id TEXT');
+	}
+	if (!columns.some((column) => column.name === 'tags')) {
+		sqlite.exec("ALTER TABLE conversations ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'");
+	}
+	// The search indexes are built once, with the command FTS5 gives for it, and
+	// the triggers keep them in step after that. Counting the rows of an external
+	// content table cannot say whether the index holds them: it reads through to
+	// the table itself, so an empty index looks full.
+	const built = sqlite.prepare('SELECT value FROM meta WHERE key = ?').get('fts_built') as
+		| { value?: string }
+		| undefined;
+	if (built?.value !== '1') {
+		sqlite.exec("INSERT INTO chats_fts (chats_fts) VALUES ('rebuild')");
+		sqlite.exec("INSERT INTO messages_fts (messages_fts) VALUES ('rebuild')");
+		sqlite.exec(
+			"INSERT INTO meta (key, value) VALUES ('fts_built', '1') ON CONFLICT(key) DO UPDATE SET value = '1'"
 		);
 	}
 }

@@ -870,6 +870,69 @@ try {
 	// Remove it again, so the checks below see the same world as before.
 	await json(`${APP}/api/mcp/${echoServer.id}`, { method: 'DELETE' });
 
+	// Search, folders, pins and tags.
+	const foldered = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ title: 'Notes about Kubernetes' })
+	});
+	const folderedId = foldered.body.conversation?.id;
+	await json(`${APP}/api/conversations/${folderedId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'the scheduler picks a node' })
+	});
+	const found = await json(`${APP}/api/search/chats?q=scheduler`);
+	check(
+		'a word in a message finds its chat',
+		found.body.hits?.length === 1 && found.body.hits[0].conversationId === folderedId,
+		JSON.stringify(found.body.hits)
+	);
+	check(
+		'the hit names the line it matched',
+		/scheduler/.test(found.body.hits?.[0]?.snippet ?? ''),
+		JSON.stringify(found.body.hits?.[0]?.snippet)
+	);
+	const byTitle = await json(`${APP}/api/search/chats?q=kubernetes`);
+	check('a word in a title finds it too', byTitle.body.hits?.[0]?.conversationId === folderedId, JSON.stringify(byTitle.body.hits));
+
+	const madeFolder = await json(`${APP}/api/folders`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ name: 'Work' })
+	});
+	const folderId = madeFolder.body.folder?.id;
+	check('a folder is made', madeFolder.status === 201 && !!folderId, JSON.stringify(madeFolder.body));
+	const moved = await json(`${APP}/api/conversations/${folderedId}`, {
+		method: 'PATCH',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ folderId })
+	});
+	check('a chat moves into the folder', moved.body.conversation?.folderId === folderId, JSON.stringify(moved.body.conversation?.folderId));
+	const ontoChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ title: 'Second chat' })
+	});
+	const merged = await json(`${APP}/api/folders/merge`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ chatId: ontoChat.body.conversation.id, ontoChatId: folderedId })
+	});
+	const afterMerge = await json(`${APP}/api/conversations/${ontoChat.body.conversation.id}`);
+	check(
+		'dropping a chat on another groups the two',
+		merged.status === 201 && afterMerge.body.conversation?.folderId === folderId,
+		JSON.stringify({ folder: merged.body.folder?.id, folderId: afterMerge.body.conversation?.folderId })
+	);
+	const removedFolder = await json(`${APP}/api/folders/${folderId}`, { method: 'DELETE' });
+	const afterFolderDelete = await json(`${APP}/api/conversations/${folderedId}`);
+	check(
+		'deleting a folder keeps its chats',
+		removedFolder.body.unfiled === 2 && afterFolderDelete.body.conversation?.folderId === null,
+		JSON.stringify({ unfiled: removedFolder.body.unfiled, folderId: afterFolderDelete.body.conversation?.folderId })
+	);
+
 	// A tool that is off sends no schema at all, so a disabled tool costs no tokens.
 	const offSaved = await json(`${APP}/api/settings`, {
 		method: 'PUT',

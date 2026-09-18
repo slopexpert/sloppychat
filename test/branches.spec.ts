@@ -66,6 +66,15 @@ describe('a chat that was one line', () => {
 	});
 });
 
+describe('a database from before the search index', () => {
+	it('holds the rows that were already there', () => {
+		// The fixture above was written before the index existed, so the migration
+		// had to fill it from the tables.
+		expect(store.searchChats('hello').map((hit) => hit.conversationId)).toContain('c1');
+		expect(store.searchChats('old chat').map((hit) => hit.conversationId)).toContain('c1');
+	});
+});
+
 describe('branches', () => {
 	function chat() {
 		const conversation = store.createConversation({ title: 'Branch test' });
