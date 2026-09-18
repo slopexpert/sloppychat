@@ -2,6 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { isApproveKey } from '$lib/client/tools';
 import {
 	TOOL_CATALOG,
 	activeTools,
@@ -128,5 +129,35 @@ describe('running a tool on the server', () => {
 			})
 		).toBe('off');
 		expect(serverTools.modeOf('nope', settings)).toBe('off');
+	});
+});
+
+describe('the allow once key', () => {
+	it('accepts Enter alone', () => {
+		expect(isApproveKey({ key: 'Enter' })).toBe(true);
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'BUTTON' } })).toBe(true);
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'DIV' } })).toBe(true);
+	});
+
+	it('ignores other keys and other modifiers', () => {
+		expect(isApproveKey({ key: 'a' })).toBe(false);
+		expect(isApproveKey({ key: ' ' })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', shiftKey: true })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', ctrlKey: true })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', metaKey: true })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', altKey: true })).toBe(false);
+	});
+
+	it('leaves Enter to a field that holds text', () => {
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'TEXTAREA', value: 'hello' } })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'INPUT', value: 'hi' } })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'SELECT' } })).toBe(false);
+		expect(isApproveKey({ key: 'Enter', target: { isContentEditable: true } })).toBe(false);
+	});
+
+	it('takes Enter from an empty field, where it does nothing else', () => {
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'TEXTAREA', value: '' } })).toBe(true);
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'TEXTAREA', value: '   ' } })).toBe(true);
+		expect(isApproveKey({ key: 'Enter', target: { tagName: 'INPUT', value: '' } })).toBe(true);
 	});
 });

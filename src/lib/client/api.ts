@@ -88,6 +88,13 @@ export const api = {
 			body: JSON.stringify({ conversationId })
 		}),
 
+	/** Answers the tool request that holds a turn, when its mode is ask first. */
+	approveTool: (conversationId: string, toolCallId: string, decision: 'allow' | 'deny', always = false) =>
+		request<{ answered: boolean }>('/api/chat/approve', {
+			method: 'POST',
+			body: JSON.stringify({ conversationId, toolCallId, decision, always })
+		}),
+
 	listSkills: () => request<{ skills: Skill[] }>('/api/skills'),
 	readSkill: (name: string) => request<{ skill: Skill }>(`/api/skills?name=${encodeURIComponent(name)}`),
 	createSkill: (input: { name: string; description?: string; body?: string }) =>

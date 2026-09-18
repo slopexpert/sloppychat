@@ -7,6 +7,7 @@ export const ICONS = {
 	plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
 	x: '<path d="M6 6l12 12"/><path d="M18 6L6 18"/>',
 	check: '<path d="M4 12.5l5 5L20 6.5"/>',
+	help: '<path d="M9.4 9.3a2.7 2.7 0 1 1 3.7 2.5c-.8.4-1.1.9-1.1 1.8v.3"/><path d="M12 17.2h.01"/>',
 	send: '<path d="M12 20V5"/><path d="M6 11l6-6 6 6"/>',
 	stop: '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>',
 	refresh:
@@ -28,6 +29,8 @@ export const ICONS = {
 	search: '<circle cx="11" cy="11" r="6"/><path d="M15.5 15.5L20 20"/>',
 	globe:
 		'<circle cx="12" cy="12" r="8"/><path d="M4 12h16"/><path d="M12 4c2.5 2.5 2.5 13 0 16"/><path d="M12 4c-2.5 2.5-2.5 13 0 16"/>',
+	wrench:
+		'<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
 	clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7.5V12l3 1.9"/>',
 	book: '<path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5z"/><path d="M20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z"/>',
 	fileText:

@@ -300,10 +300,13 @@ describe('page structure', () => {
 		expect(body).toContain('title="Enter sends, Shift+Enter adds a line"');
 	});
 
-	it('moves the web tools toggle into the top bar', () => {
+	it('holds the tools menu in the top bar', () => {
 		const { body } = render(Page);
 		const header = /<header[\s\S]*?<\/header>/.exec(body)?.[0] ?? '';
-		expect(header).toContain('aria-label="Web tools"');
-		expect(header).toContain('aria-pressed');
+		expect(header).toContain('aria-label="Tools"');
+		expect(header).toContain('aria-haspopup="dialog"');
+		expect(header).toContain('aria-expanded="false"');
+		// The three modes live in the popover, so the button holds no pressed state.
+		expect(header).not.toContain('aria-pressed');
 	});
 });

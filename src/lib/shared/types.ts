@@ -209,13 +209,16 @@ export const DEFAULT_THEME: ThemeSettings = {
 	density: 'default'
 };
 
+/** How a tool is offered to the model. */
+export type ToolMode = 'off' | 'ask' | 'on';
+
 export interface Settings {
 	theme: ThemeSettings;
 	search: SearchConfig;
 	generation: GenerationParams;
 	tools: {
-		webSearch: boolean;
-		webFetch: boolean;
+		/** Mode per tool id. A tool with no entry uses the default of its catalog entry. */
+		modes: Record<string, ToolMode>;
 		maxRounds: number;
 		fetchMaxChars: number;
 		/** Lets web_fetch reach loopback and LAN addresses. Off by default. */
@@ -235,8 +238,7 @@ export const DEFAULT_SETTINGS: Settings = {
 	search: { url: '', apiKey: '', maxResults: 5 },
 	generation: { ...DEFAULT_PARAMS },
 	tools: {
-		webSearch: true,
-		webFetch: true,
+		modes: {},
 		maxRounds: 6,
 		fetchMaxChars: 20000,
 		fetchAllowPrivate: false,
@@ -257,6 +259,8 @@ export type StreamEvent =
 			reasoning: string;
 			toolCalls: ToolCall[];
 			running: boolean;
+			/** A tool that waits for the user, so a reload still shows the card. */
+			approval?: ToolCall | null;
 	  }
 	/** No turn is running for this conversation. */
 	| { type: 'idle' }
@@ -264,6 +268,10 @@ export type StreamEvent =
 	| { type: 'text'; text: string }
 	| { type: 'reasoning'; text: string }
 	| { type: 'tool_call'; call: ToolCall }
+	/** A tool finished on the server, with the text the model reads back. */
+	| { type: 'tool_result'; toolCallId: string; isError: boolean; detail: string; data?: unknown }
+	/** A tool waits for the user, because its mode is ask first. */
+	| { type: 'tool_ask'; call: ToolCall }
 	| { type: 'done'; finishReason: string; usage?: Usage; messageId: string }
 	| { type: 'notice'; message: string }
 	| { type: 'error'; message: string };
@@ -278,6 +286,4 @@ export interface ChatRequest {
 	conversationId: string;
 	providerId?: string;
 	model?: string;
-	/** Stop the current turn and drop the partial assistant message. */
-	tools?: boolean;
 }

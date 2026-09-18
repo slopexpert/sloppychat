@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { render } from 'svelte/server';
 import Icon from '$lib/components/Icon.svelte';
+import ToolList from '$lib/components/ToolList.svelte';
 import Markdown from '$lib/components/Markdown.svelte';
 import MessageItem from '$lib/components/MessageItem.svelte';
 import { ICONS } from '$lib/shared/icons';
+import { TOOL_CATALOG } from '$lib/shared/tools';
 import type { Message } from '$lib/shared/types';
 
 /** Server rendering keeps the components honest without a browser. */
@@ -201,5 +203,29 @@ describe('live reasoning', () => {
 	it('has no statistics line while an answer is still empty', () => {
 		const body = renderMessage(assistant({ text: '' }), false);
 		expect(body).not.toContain('tok/s');
+	});
+});
+
+describe('ToolList', () => {
+	it('shows the tool id and a three way switch', () => {
+		const { body } = render(ToolList);
+		const rows = TOOL_CATALOG.length;
+		expect(rows).toBeGreaterThan(0);
+		// One switch per tool, with three positions and one active position each.
+		expect(body.match(/role="radiogroup"/g) ?? []).toHaveLength(rows);
+		expect(body.match(/role="radio"/g) ?? []).toHaveLength(rows * 3);
+		expect(body.match(/aria-checked="true"/g) ?? []).toHaveLength(rows);
+		// Each position has an accessible name, because the switch holds icons only.
+		expect(body.match(/aria-label="Off"/g) ?? []).toHaveLength(rows);
+		expect(body.match(/aria-label="Ask first"/g) ?? []).toHaveLength(rows);
+		expect(body.match(/aria-label="On"/g) ?? []).toHaveLength(rows);
+		for (const spec of TOOL_CATALOG) {
+			expect(body).toContain(`aria-label="${spec.name} mode"`);
+			// The row shows the tool id, and no human label stands in for the tool.
+			expect(body).toContain(`>${spec.name}</span>`);
+		}
+		expect(body).not.toContain('>Search<');
+		expect(body).not.toContain('>Skill<');
+		expect(body).not.toContain('>Fetch<');
 	});
 });

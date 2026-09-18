@@ -1,6 +1,7 @@
 <script lang="ts">
 	import ContextGauge from './ContextGauge.svelte';
 	import Icon from './Icon.svelte';
+	import ToolsMenu from './ToolsMenu.svelte';
 	import { app } from '$lib/client/state.svelte';
 	import { contextWindowFor } from '$lib/shared/context';
 	import type { ModelInfo } from '$lib/shared/types';
@@ -173,15 +174,7 @@
 			<span class="hidden text-xs text-faint lg:inline">{describe(selected)}</span>
 		{/if}
 
-		<button
-			class="icon-btn {app.useTools ? 'icon-btn-on' : ''}"
-			title={app.useTools ? 'Web tools are on for this chat' : 'Web tools are off for this chat'}
-			aria-label="Web tools"
-			aria-pressed={app.useTools}
-			onclick={() => (app.useTools = !app.useTools)}
-		>
-			<Icon name="globe" size={18} />
-		</button>
+		<ToolsMenu />
 		<button
 			class="icon-btn"
 			title="Generation parameters"

@@ -159,6 +159,12 @@ const mock = createServer((req, res) => {
 				return;
 			}
 			const hasToolResult = body.messages.some((message) => message.role === 'tool');
+			const toolCount = body.messages.filter((message) => message.role === 'tool').length;
+			// A prompt that asks for two tools makes the mock call the tool twice, which
+			// is what the Always allow check needs.
+			const wantsTwo = body.messages.some(
+				(message) => typeof message.content === 'string' && message.content.includes('two tools')
+			);
 			// A turn that carries page images is the PDF path, answer it directly.
 			const hasImage = body.messages.some(
 				(message) =>
@@ -173,7 +179,8 @@ const mock = createServer((req, res) => {
 				]);
 				return;
 			}
-			if (!hasToolResult) {
+			if (!hasToolResult || (wantsTwo && toolCount === 1)) {
+				const callId = toolCount === 0 ? 'call_1' : 'call_2';
 				// Ask for a tool call, split across deltas to test accumulation.
 				sse(res, [
 					{ choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }] },
@@ -183,7 +190,7 @@ const mock = createServer((req, res) => {
 								index: 0,
 								delta: {
 									tool_calls: [
-										{ index: 0, id: 'call_1', type: 'function', function: { name: 'web_fetch' } }
+										{ index: 0, id: callId, type: 'function', function: { name: 'web_fetch' } }
 									]
 								},
 								finish_reason: null
@@ -371,8 +378,7 @@ try {
 		body: JSON.stringify({
 			search: { url: MOCK, apiKey: '', maxResults: 5 },
 			tools: {
-				webSearch: true,
-				webFetch: true,
+				modes: { web_search: 'on', web_fetch: 'on' },
 				maxRounds: 6,
 				fetchMaxChars: 20000,
 				fetchAllowPrivate: true
@@ -430,6 +436,7 @@ try {
 		first.find((event) => event.type === 'snapshot' && event.messageId) ??
 		first.find((event) => event.type === 'start');
 	const calls = first.filter((event) => event.type === 'tool_call');
+	const results = first.filter((event) => event.type === 'tool_result');
 	const done = first.find((event) => event.type === 'done');
 	check('streaming turn starts with a message id', !!start?.messageId);
 	check(
@@ -437,9 +444,14 @@ try {
 		calls.length === 1 && calls[0].call.name === 'web_fetch' && calls[0].call.args?.url === `${MOCK}/page`,
 		JSON.stringify(calls)
 	);
-	check('turn finishes with a reason', done?.finishReason === 'tool_calls', JSON.stringify(done));
+	check(
+		'the server runs the tool with no page attached',
+		results.length === 1 && results[0].toolCallId === 'call_1' && results[0].isError === false,
+		JSON.stringify(results)
+	);
+	check('turn finishes with a reason', done?.finishReason === 'stop', JSON.stringify(done));
 
-	// The browser side of the tool loop.
+	// The endpoints stay for other clients and for debugging.
 	const search = await json(`${APP}/api/search`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
@@ -464,27 +476,18 @@ try {
 		JSON.stringify(pageFetch.body).slice(0, 300)
 	);
 
-	const second = await readStream(`${APP}/api/chat/tools`, {
-		conversationId,
-		results: [
-			{
-				toolCallId: calls[0].call.id,
-				content: `${pageFetch.body.text}\n\n${search.body.text}`
-			}
-		]
-	});
-	const text = second
+	const text = first
 		.filter((event) => event.type === 'text')
 		.map((event) => event.text)
 		.join('');
-	const reasoning = second
+	const reasoning = first
 		.filter((event) => event.type === 'reasoning')
 		.map((event) => event.text)
 		.join('');
 	check('assistant answer streams after the tool result', text === 'MOCK ANSWER', JSON.stringify(text));
 
 	// The provider waits between frames, so a buffering proxy would collapse this.
-	const textEvents = second.filter((event) => event.type === 'text');
+	const textEvents = first.filter((event) => event.type === 'text');
 	const span = textEvents.length > 1 ? textEvents.at(-1).at - textEvents.at(0).at : 0;
 	check(
 		'tokens reach the client as they are produced',
@@ -493,8 +496,8 @@ try {
 	);
 	check(
 		'the first token arrives before the turn ends',
-		textEvents.length > 0 && textEvents[0].at < second.at(-1).at,
-		JSON.stringify({ first: textEvents[0]?.at, done: second.at(-1)?.at })
+		textEvents.length > 0 && textEvents[0].at < first.at(-1).at,
+		JSON.stringify({ first: textEvents[0]?.at, done: first.at(-1)?.at })
 	);
 	check(
 		'the tool result reaches the provider',
@@ -503,9 +506,9 @@ try {
 	);
 	check('reasoning stays out of the answer text', reasoning === 'thinking...', JSON.stringify(reasoning));
 	check(
-		'second turn reports usage',
-		second.find((event) => event.type === 'done')?.usage?.total === 47,
-		JSON.stringify(second.filter((event) => event.type === 'done'))
+		'the turn reports usage',
+		done?.usage?.total === 47,
+		JSON.stringify(first.filter((event) => event.type === 'done'))
 	);
 
 	const history = await json(`${APP}/api/conversations/${conversationId}`);
@@ -524,6 +527,229 @@ try {
 		history.body.conversation.title.startsWith('Read the mock page'),
 		history.body.conversation.title
 	);
+
+	// The mode ask first holds the turn until a window answers.
+	const askSaved = await json(`${APP}/api/settings`, {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			tools: { ...saved.body.tools, modes: { web_search: 'on', web_fetch: 'ask' } }
+		})
+	});
+	check(
+		'the ask mode is stored',
+		askSaved.body.tools?.modes?.web_fetch === 'ask',
+		JSON.stringify(askSaved.body.tools?.modes)
+	);
+	const askChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const askId = askChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${askId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'Read the mock page please' })
+	});
+	const asked = [];
+	await readUntil(
+		`${APP}/api/chat`,
+		{ conversationId: askId },
+		(events) => events.some((event) => event.type === 'tool_ask'),
+		asked
+	);
+	check(
+		'the tool waits for the user',
+		asked.some((event) => event.type === 'tool_ask' && event.call.id === 'call_1'),
+		JSON.stringify(asked.map((event) => event.type))
+	);
+
+	// A reload, or a second window, sees the same request in its snapshot.
+	const seen = [];
+	await readUntil(
+		`${APP}/api/chat/stream?conversationId=${askId}`,
+		undefined,
+		(events) => events.length >= 1,
+		seen
+	);
+	check(
+		'a reload shows the waiting tool',
+		seen[0]?.approval?.id === 'call_1',
+		JSON.stringify(seen[0]?.approval)
+	);
+
+	const rest = [];
+	const askWatch = readUntil(
+		`${APP}/api/chat/stream?conversationId=${askId}`,
+		undefined,
+		(events) => events.some((event) => event.type === 'done'),
+		rest
+	);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const approved = await json(`${APP}/api/chat/approve`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ conversationId: askId, toolCallId: 'call_1', decision: 'allow' })
+	});
+	check('the approval is accepted', approved.body.answered === true, JSON.stringify(approved.body));
+	await askWatch;
+	check(
+		'the turn finishes after the approval',
+		rest.some((event) => event.type === 'tool_result' && !event.isError) &&
+			rest.some((event) => event.type === 'done'),
+		JSON.stringify(rest.map((event) => event.type))
+	);
+
+	// A denial becomes an error result, and the model answers from there.
+	const denyChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const denyId = denyChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${denyId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'Read the mock page please' })
+	});
+	await readUntil(
+		`${APP}/api/chat`,
+		{ conversationId: denyId },
+		(events) => events.some((event) => event.type === 'tool_ask')
+	);
+	const deniedRest = [];
+	const deniedWatch = readUntil(
+		`${APP}/api/chat/stream?conversationId=${denyId}`,
+		undefined,
+		(events) => events.some((event) => event.type === 'done'),
+		deniedRest
+	);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	await json(`${APP}/api/chat/approve`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ conversationId: denyId, toolCallId: 'call_1', decision: 'deny' })
+	});
+	await deniedWatch;
+	const deniedHistory = await json(`${APP}/api/conversations/${denyId}`);
+	const deniedRow = (deniedHistory.body.messages ?? []).find((item) => item.role === 'tool');
+	check(
+		'a denied tool is recorded as an error',
+		deniedRow?.isError === true && /denied/i.test(deniedRow.text),
+		JSON.stringify(deniedRow)
+	);
+	check(
+		'the model answers after a denial',
+		deniedHistory.body.messages.at(-1)?.text === 'MOCK ANSWER',
+		JSON.stringify(deniedHistory.body.messages.at(-1)?.text)
+	);
+
+	// Always allow writes the mode, so a second call in the same turn runs free.
+	const alwaysChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const alwaysId = alwaysChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${alwaysId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'Read the mock page with two tools please' })
+	});
+	const firstAsk = [];
+	await readUntil(
+		`${APP}/api/chat`,
+		{ conversationId: alwaysId },
+		(events) => events.some((event) => event.type === 'tool_ask'),
+		firstAsk
+	);
+	check(
+		'the first call of the turn waits',
+		firstAsk.some((event) => event.type === 'tool_ask' && event.call.id === 'call_1'),
+		JSON.stringify(firstAsk.map((event) => event.type))
+	);
+	const alwaysRest = [];
+	const alwaysWatch = readUntil(
+		`${APP}/api/chat/stream?conversationId=${alwaysId}`,
+		undefined,
+		(events) => events.some((event) => event.type === 'done'),
+		alwaysRest
+	);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const always = await json(`${APP}/api/chat/approve`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			conversationId: alwaysId,
+			toolCallId: 'call_1',
+			decision: 'allow',
+			always: true
+		})
+	});
+	check('always allow is accepted', always.body.answered === true, JSON.stringify(always.body));
+	await alwaysWatch;
+	const secondAsks = alwaysRest.filter((event) => event.type === 'tool_ask');
+	const ranTools = alwaysRest.filter((event) => event.type === 'tool_result');
+	check(
+		'always allow stops the second question in the same turn',
+		secondAsks.length === 0 && ranTools.length >= 1,
+		`${secondAsks.length} asks, ${ranTools.length} results`
+	);
+	const storedModes = (await json(`${APP}/api/settings`)).body.tools?.modes ?? {};
+	check(
+		'always allow saves the mode',
+		storedModes.web_fetch === 'on',
+		JSON.stringify(storedModes)
+	);
+
+	// Put both modes back for the checks below.
+	await json(`${APP}/api/settings`, {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			tools: { ...askSaved.body.tools, modes: { web_search: 'on', web_fetch: 'on' } }
+		})
+	});
+
+	// A tool that is off sends no schema at all, so a disabled tool costs no tokens.
+	const offSaved = await json(`${APP}/api/settings`, {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			tools: { ...saved.body.tools, modes: { web_search: 'off', web_fetch: 'on' } }
+		})
+	});
+	check(
+		'a tool that is off survives the round trip',
+		offSaved.body.tools?.modes?.web_search === 'off',
+		JSON.stringify(offSaved.body.tools?.modes)
+	);
+	const schemaChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	await json(`${APP}/api/conversations/${schemaChat.body.conversation.id}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'slow stream, tool schema check' })
+	});
+	await readStream(`${APP}/api/chat`, { conversationId: schemaChat.body.conversation.id });
+	const offered = (upstream.lastBody.tools ?? []).map((tool) => tool.function.name);
+	check(
+		'an off tool sends no schema to the provider',
+		!offered.includes('web_search') && offered.includes('web_fetch'),
+		JSON.stringify(offered)
+	);
+	// Put the search tool back for the checks below.
+	await json(`${APP}/api/settings`, {
+		method: 'PUT',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			tools: { ...offSaved.body.tools, modes: { web_search: 'on', web_fetch: 'on' } }
+		})
+	});
 
 	// A turn must outlive the connection that started it.
 	const slowChat = await json(`${APP}/api/conversations`, {
@@ -643,9 +869,9 @@ try {
 	const stuckAnswers = stuckRows.filter(
 		(message) => message.role === 'assistant' && message.text.length > 0
 	).length;
-	checkDefect(
+	check(
 		'a turn that asks for a tool finishes with no page attached',
-		stuckToolRows === 0 && stuckAnswers === 0,
+		stuckToolRows >= 1 && stuckAnswers >= 1,
 		`${stuckToolRows} tool rows, ${stuckAnswers} answers`
 	);
 
@@ -823,7 +1049,7 @@ try {
 	check('non image upload is rejected', badUpload.status === 400, JSON.stringify(badUpload.body));
 
 	// Throughput statistics must be attached to the finished turn.
-	const stats = second.find((event) => event.type === 'done')?.usage ?? {};
+	const stats = first.find((event) => event.type === 'done')?.usage ?? {};
 	check(
 		'usage carries prefill and generation timing',
 		typeof stats.ttftMs === 'number' && typeof stats.decodeMs === 'number' && stats.ttftMs >= 0,

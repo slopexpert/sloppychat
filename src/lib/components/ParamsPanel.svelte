@@ -3,6 +3,7 @@
 	import { resolveParams } from '$lib/shared/params';
 	import type { GenerationParams } from '$lib/shared/types';
 	import ParamsForm from './ParamsForm.svelte';
+	import { activeTools } from '$lib/shared/tools';
 	import Icon from './Icon.svelte';
 
 	const inherited = $derived(resolveParams(app.settings.generation));
@@ -53,7 +54,7 @@
 		<div class="flex justify-between gap-2"><dt>Model</dt><dd class="truncate-clip text-fg">{app.model || 'none'}</dd></div>
 		<div class="flex justify-between gap-2">
 			<dt>Tools</dt>
-			<dd class="text-fg">{app.useTools ? 'on' : 'off'}</dd>
+			<dd class="text-fg">{activeTools(app.settings.tools.modes).length} active</dd>
 		</div>
 		<div class="flex justify-between gap-2">
 			<dt>Max tools rounds</dt>

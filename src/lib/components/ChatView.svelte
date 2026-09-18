@@ -1,6 +1,7 @@
 <script lang="ts">
 	import MessageItem from './MessageItem.svelte';
 	import { app } from '$lib/client/state.svelte';
+	import { isApproveKey } from '$lib/client/tools';
 	import { formatPrefillStats } from '$lib/shared/stats';
 	import type { Message } from '$lib/shared/types';
 
@@ -25,6 +26,20 @@
 	const lastAssistantId = $derived(
 		[...visible].reverse().find((message) => message.role === 'assistant')?.id
 	);
+
+	/** The tool request that waits for the user, when a card asks for an answer. */
+	const waiting = $derived(
+		app.messages
+			.flatMap((message) => message.toolCalls ?? [])
+			.find((call) => app.toolProgress[call.id]?.state === 'ask')
+	);
+
+	/** Enter allows the waiting tool once, so the keyboard alone can go on. */
+	function onKeydown(event: KeyboardEvent) {
+		if (!waiting || !isApproveKey(event)) return;
+		event.preventDefault();
+		void app.approve(waiting, 'allow');
+	}
 	/** The prefill belongs to the message that started the turn in flight. */
 	const lastUserId = $derived([...visible].reverse().find((message) => message.role === 'user')?.id);
 
@@ -67,6 +82,8 @@
 	});
 
 </script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div
 	class="min-h-0 flex-1 overflow-y-auto"

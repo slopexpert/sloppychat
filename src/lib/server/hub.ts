@@ -1,5 +1,6 @@
-import type { StreamEvent, ToolCall, ToolResult } from '$lib/shared/types';
-import { continueWithToolResults, runTurn, type TurnRequest } from './bridge';
+import type { StreamEvent, ToolCall } from '$lib/shared/types';
+import { runTurn, type TurnRequest } from './bridge';
+import { pendingApproval } from './approvals';
 import type { SseWriter } from './sse';
 import { finalizeMessage, getMessage } from './store';
 
@@ -96,13 +97,6 @@ export function startTurn(request: TurnRequest): boolean {
 	return true;
 }
 
-/** Stores tool results and continues the chain, unless a turn is already running. */
-export function startToolContinuation(conversationId: string, results: ToolResult[]): boolean {
-	if (turns.has(conversationId)) return false;
-	begin(conversationId, (writer, signal) => continueWithToolResults(conversationId, results, writer, signal));
-	return true;
-}
-
 /**
  * What a client needs to render a turn that is already in progress. The row the
  * turn is writing into comes from the turn itself, not from the last message in
@@ -119,10 +113,19 @@ export function snapshotFor(conversationId: string): StreamEvent {
 			text: assistant.text,
 			reasoning: assistant.reasoning ?? '',
 			toolCalls: (assistant.toolCalls ?? []) as ToolCall[],
-			running: true
+			running: true,
+			approval: pendingApproval(conversationId) ?? null
 		};
 	}
-	return { type: 'snapshot', messageId: null, text: '', reasoning: '', toolCalls: [], running: Boolean(turn) };
+	return {
+		type: 'snapshot',
+		messageId: null,
+		text: '',
+		reasoning: '',
+		toolCalls: [],
+		running: Boolean(turn),
+		approval: pendingApproval(conversationId) ?? null
+	};
 }
 
 export interface Subscription {

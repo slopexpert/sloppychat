@@ -3,8 +3,11 @@
 	import { onMount } from 'svelte';
 	import Toasts from '$lib/components/Toasts.svelte';
 	import { app } from '$lib/client/state.svelte';
+	import { pageTitle } from '$lib/shared/title';
 
 	let { children } = $props();
+
+	const title = $derived(pageTitle(app.conversation?.title));
 
 	onMount(() => {
 		void app.init();
@@ -20,6 +23,10 @@
 		};
 	});
 </script>
+
+<svelte:head>
+	<title>{title}</title>
+</svelte:head>
 
 <div class="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
 	<a href="#composer" class="skip-link">

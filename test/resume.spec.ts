@@ -156,7 +156,9 @@ describe('resuming after a reload', () => {
 		expect(calls.streams.map((call) => call.method)).toEqual(['GET']);
 	});
 
-	it('runs tool calls that were never answered', async () => {
+	it('starts the turn again when a tool call was never answered', async () => {
+		// The tools run on the server now, so a call without an answer means the
+		// turn died. The server closes the call and carries on.
 		attachScript = [
 			{ type: 'snapshot', messageId: null, text: '', reasoning: '', toolCalls: [], running: false },
 			{ type: 'idle' }
@@ -174,10 +176,31 @@ describe('resuming after a reload', () => {
 		await app.resume();
 
 		const posted = calls.streams.find((call) => call.method === 'POST');
-		expect(posted?.url).toBe('/api/chat/tools');
-		const results = (posted?.body as { results: { toolCallId: string; content: string }[] }).results;
-		expect(results[0].toolCallId).toBe('call_1');
-		expect(results[0].content).toContain('unknown tool');
+		expect(posted?.url).toBe('/api/chat');
+	});
+
+	it('asks for the answer after a tool result, and never runs the tool again', async () => {
+		attachScript = [
+			{ type: 'snapshot', messageId: null, text: '', reasoning: '', toolCalls: [], running: false },
+			{ type: 'idle' }
+		];
+		postScript = [{ type: 'start', messageId: 'a2' }, { type: 'done', finishReason: 'stop', messageId: 'a2' }];
+		const app = freshState([
+			message({ role: 'user', text: 'use a tool' }),
+			message({
+				role: 'assistant',
+				id: 'a1',
+				text: '',
+				toolCalls: [{ id: 'call_1', name: 'not-a-real-tool', args: {} }]
+			}),
+			message({ role: 'tool', toolCallId: 'call_1', toolName: 'not-a-real-tool', text: 'Error' })
+		]);
+		await app.resume();
+
+		const urls = calls.streams.map((call) => call.url);
+		// The tool row is the last message, so the answer for it is still missing.
+		expect(urls).toContain('/api/chat');
+		expect(urls).not.toContain('/api/chat/tools');
 	});
 
 	it('continues a conversation whose answer never happened', async () => {

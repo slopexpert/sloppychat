@@ -6,6 +6,7 @@
 	import { resolveTheme, THEMES } from '$lib/shared/themes';
 	import ParamsForm from './ParamsForm.svelte';
 	import Icon from './Icon.svelte';
+	import ToolList from './ToolList.svelte';
 
 	interface Choice {
 		id: string;
@@ -354,37 +355,8 @@
 				{:else if tab === 'tools'}
 					<div class="space-y-4">
 						<div class="card space-y-2 p-3">
-							<h3 class="text-sm font-semibold">Web tools</h3>
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									class="accent-[var(--accent)]"
-									checked={app.settings.tools.webSearch}
-									onchange={(event) =>
-										save({
-											tools: {
-												...app.settings.tools,
-												webSearch: (event.currentTarget as HTMLInputElement).checked
-											}
-										})}
-								/>
-								web_search
-							</label>
-							<label class="flex items-center gap-2 text-sm">
-								<input
-									type="checkbox"
-									class="accent-[var(--accent)]"
-									checked={app.settings.tools.webFetch}
-									onchange={(event) =>
-										save({
-											tools: {
-												...app.settings.tools,
-												webFetch: (event.currentTarget as HTMLInputElement).checked
-											}
-										})}
-								/>
-								web_fetch
-							</label>
+							<h3 class="text-sm font-semibold">Tools</h3>
+							<ToolList />
 							<label class="flex items-center gap-2 text-sm">
 								<input
 									type="checkbox"

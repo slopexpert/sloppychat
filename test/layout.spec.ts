@@ -26,6 +26,13 @@ describe('top bar', () => {
 		expect(topBar).toContain('field w-36 text-xs sm:w-52 md:w-64');
 	});
 
+	it('shows the same tool list in the menu and in settings', () => {
+		// One component holds the three modes, so the two places cannot disagree.
+		const settings = readFileSync('src/lib/components/SettingsModal.svelte', 'utf8');
+		expect(topBar).toContain('<ToolsMenu />');
+		expect(settings).toContain('<ToolList />');
+	});
+
 	it('collapses the chat list without moving the bar', () => {
 		// The bar carries the new chat button while the list is out of sight, and it
 		// was measured at 400 to 1280 px in both states: always 45 px tall, which is

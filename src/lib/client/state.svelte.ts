@@ -12,16 +12,19 @@ import {
 	type StreamEvent,
 	type ThemeSettings,
 	type ToolCall,
+	type ToolMode,
 	type ToolResult
 } from '$lib/shared/types';
 import type { Skill } from '$lib/shared/skills';
 import { resolveParams } from '$lib/shared/params';
+import { TOOL_CATALOG } from '$lib/shared/tools';
 import { contextUsage, liveRate, ratePerSecond } from '$lib/shared/stats';
 import { resolveTheme } from '$lib/shared/themes';
 import { fontChoice, fontStack } from '$lib/shared/fonts';
 import { api, getStream, postStream } from './api';
+import { replaceState } from '$app/navigation';
 import { applyFavicon } from './favicon';
-import { executeTool, type ToolProgress } from './tools';
+import type { ToolProgress } from './tools';
 import type { GenerationParams } from '$lib/shared/types';
 
 /** Single store for the whole app. Svelte 5 runes keep every view in sync. */
@@ -88,8 +91,6 @@ export class AppState {
 	#requestStartedAt = 0;
 	#prefillTicker: ReturnType<typeof setInterval> | undefined;
 	toolProgress = $state<Record<string, ToolProgress>>({});
-	toolRounds = $state(0);
-	useTools = $state(true);
 	toasts = $state<Toast[]>([]);
 	/** Messages typed while a turn was streaming, sent in order afterwards. */
 	queued = $state<QueuedMessage[]>([]);
@@ -159,7 +160,11 @@ export class AppState {
 			this.conversations = conversations.conversations;
 			void this.refreshSkills();
 			applyTheme(settings.theme);
-			if (this.conversations.length) await this.open(this.conversations[0].id);
+			// The address bar remembers the chat, so a reload opens the same one.
+			const wanted = this.#conversationFromUrl();
+			const known = wanted ? this.conversations.find((item) => item.id === wanted) : undefined;
+			if (known) await this.open(known.id);
+			else if (this.conversations.length) await this.open(this.conversations[0].id);
 			else await this.newConversation();
 			// Model lists load in the background; ensureModel runs again per list.
 			void this.refreshAllModels();
@@ -226,6 +231,7 @@ export class AppState {
 		this.conversation = conversation;
 		this.messages = [];
 		this.toolProgress = {};
+		this.#rememberConversation(conversation.id);
 		// Discovery may still be running, in which case the model lands later.
 		if (!conversation.model) void this.ensureModel();
 	}
@@ -274,6 +280,21 @@ export class AppState {
 		void this.saveSettings({ defaults });
 	}
 
+	/** The chat the address bar points at, or null when it holds no chat. */
+	#conversationFromUrl(): string | null {
+		if (typeof window === 'undefined') return null;
+		return new URL(window.location.href).searchParams.get('c');
+	}
+
+	/** Puts the open chat in the address bar, without a new history entry. */
+	#rememberConversation(id: string): void {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		if (url.searchParams.get('c') === id) return;
+		url.searchParams.set('c', id);
+		replaceState(url, {});
+	}
+
 	async open(id: string): Promise<void> {
 		// Switching chats only stops this page from watching, the turn runs on.
 		if (this.running) this.detach();
@@ -282,6 +303,7 @@ export class AppState {
 			this.conversation = conversation;
 			this.messages = messages;
 			this.toolProgress = {};
+			this.#rememberConversation(conversation.id);
 			// An older chat may predate model discovery.
 			if (!conversation.model) void this.ensureModel();
 			// Picking a chat in the drawer means the drawer has done its job.
@@ -359,42 +381,25 @@ export class AppState {
 		await this.continuePending();
 	}
 
-	/** Runs work left over from an interrupted turn: tools, or an unaswered message. */
+	/** Starts the turn that a stopped or reloaded page left unasked. */
 	private async continuePending(): Promise<void> {
 		const conversation = this.conversation;
 		const last = this.messages[this.messages.length - 1];
 		if (!conversation || !last) return;
+		if (!this.provider || !this.model || this.queued.length) return;
+		// An unanswered tool call means the turn died with the server. Starting the
+		// turn again makes the server close the call and answer from there.
 		if (last.role === 'assistant') {
 			const answered = new Set(
 				this.messages.filter((message) => message.role === 'tool' && message.toolCallId).map((m) => m.toolCallId)
 			);
-			const pending = (last.toolCalls ?? []).filter((call) => !answered.has(call.id));
-			if (!pending.length || !this.provider || !this.model) return;
-			if (this.queued.length) return;
-			const controller = new AbortController();
-			this.#controller = controller;
-			this.running = true;
-			try {
-				const results = await this.runTools(pending, controller.signal);
-				if (controller.signal.aborted) return;
-				await this.streamTurn(
-					{ url: '/api/chat/tools', body: { conversationId: conversation.id, results }, method: 'POST' },
-					controller.signal
-				);
-			} catch (err) {
-				if (!controller.signal.aborted) this.toast('error', errorText(err));
-			} finally {
-				this.running = false;
-				this.#controller = null;
-				this.liveMessageId = null;
-				this.stopPrefillTimer();
-				await this.refreshMessages().catch(() => {});
-			}
+			const waiting = (last.toolCalls ?? []).some((call) => !answered.has(call.id));
+			if (!waiting) return;
+			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
 			return;
 		}
 		// A trailing user or tool message means no answer was ever produced.
 		if (last.role === 'user' || last.role === 'tool') {
-			if (!this.provider || !this.model || this.queued.length) return;
 			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
 		}
 	}
@@ -484,8 +489,7 @@ export class AppState {
 		return {
 			conversationId: this.conversation?.id,
 			providerId: this.provider?.id ?? null,
-			model: this.model || null,
-			tools: this.useTools
+			model: this.model || null
 		};
 	}
 
@@ -577,6 +581,22 @@ export class AppState {
 		this.stopPrefillTimer();
 	}
 
+	/** Answers a tool that waits, because its mode is ask first. */
+	async approve(call: ToolCall, decision: 'allow' | 'deny', always = false): Promise<void> {
+		if (!this.conversation) return;
+		this.toolProgress[call.id] = {
+			state: decision === 'allow' ? 'running' : 'error',
+			detail: decision === 'allow' ? 'approved' : 'denied'
+		};
+		try {
+			await api.approveTool(this.conversation.id, call.id, decision, always);
+			// Always allow saves the mode on the server, so the view must catch up.
+			if (always) this.settings = await api.getSettings();
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
 	/** Ends the turn for real, which is only ever the user's decision. */
 	stop(): void {
 		const conversationId = this.conversation?.id;
@@ -588,34 +608,15 @@ export class AppState {
 		}
 	}
 
-	/** Streams turns until the model stops asking for tools. */
+	/** Streams one turn. The server runs the tools and continues on its own. */
 	private async runLoop(payload: { url: string; body: unknown }): Promise<void> {
 		if (!this.conversation) return;
 		this.running = true;
-		this.toolRounds = 0;
 		this.#controller = new AbortController();
 		const signal = this.#controller.signal;
-		let current = payload;
 		try {
-			for (let round = 0; ; round++) {
-				const toolCalls = await this.streamTurn(
-					{ url: current.url, body: current.body, method: 'POST' },
-					signal
-				);
-				await this.refreshMessages();
-				if (signal.aborted || !toolCalls.length) break;
-				if (round >= this.settings.tools.maxRounds) {
-					this.toast('info', `Stopped after ${round} tool rounds`);
-					break;
-				}
-				this.toolRounds = round + 1;
-				const results = await this.runTools(toolCalls, signal);
-				if (signal.aborted) break;
-				current = {
-					url: '/api/chat/tools',
-					body: { conversationId: this.conversation.id, results }
-				};
-			}
+			await this.streamTurn({ url: payload.url, body: payload.body, method: 'POST' }, signal);
+			await this.refreshMessages();
 		} catch (err) {
 			if (!signal.aborted) this.toast('error', errorText(err));
 		} finally {
@@ -624,16 +625,12 @@ export class AppState {
 			this.liveRate = undefined;
 			this.stopPrefillTimer();
 			this.#controller = null;
-			this.toolRounds = 0;
 			await this.refreshMessages().catch(() => {});
 			// A follow up typed during the turn starts now. The guard in drainQueue
 			// keeps this from recursing when called again from a nested turn.
 			if (this.queued.length) void this.drainQueue();
 		}
 	}
-
-	/** Collects the tool calls seen during the current stream. */
-	#calls: ToolCall[] = [];
 
 	/**
 	 * Applies one stream event to the local view. The same handling is used when
@@ -686,10 +683,19 @@ export class AppState {
 				this.countLive(event.text.length);
 				break;
 			case 'tool_call':
-				this.#calls.push(event.call);
 				this.patchLive((message) => {
 					message.toolCalls = [...(message.toolCalls ?? []), event.call];
 				});
+				break;
+			case 'tool_result':
+				this.toolProgress[event.toolCallId] = {
+					state: event.isError ? 'error' : 'done',
+					detail: event.detail,
+					data: event.data
+				};
+				break;
+			case 'tool_ask':
+				this.toolProgress[event.call.id] = { state: 'ask', detail: 'waiting for you' };
 				break;
 			case 'notice':
 				this.toast('info', event.message);
@@ -769,6 +775,8 @@ export class AppState {
 	/** Restores the answer that is already in the database when attaching. */
 	private applySnapshot(event: Extract<StreamEvent, { type: 'snapshot' }>): void {
 		this.turnRunning = event.running;
+		// A tool that waits for the user is part of the snapshot, so a reload shows it.
+		if (event.approval) this.toolProgress[event.approval.id] = { state: 'ask', detail: 'waiting for you' };
 		if (!event.messageId) return;
 		const existing = this.messages.find((message) => message.id === event.messageId);
 		if (existing) {
@@ -807,27 +815,12 @@ export class AppState {
 	private async streamTurn(
 		request: { url: string; body?: unknown; method?: 'POST' | 'GET' },
 		signal: AbortSignal
-	): Promise<ToolCall[]> {
-		this.#calls = [];
+	): Promise<void> {
 		this.turnRunning = true;
 		if (request.method !== 'GET') this.startPrefillTimer();
 		const handler = (event: StreamEvent) => this.handleEvent(event);
 		if (request.method === 'GET') await getStream(request.url, signal, handler);
 		else await postStream(request.url, request.body, signal, handler);
-		return this.#calls;
-	}
-
-	private async runTools(calls: ToolCall[], signal: AbortSignal): Promise<ToolResult[]> {
-		for (const call of calls) this.toolProgress[call.id] = { state: 'running' };
-		const runs = await Promise.all(
-			calls.map(async (call) => executeTool(call, this.settings.search.maxResults, signal))
-		);
-		const results: ToolResult[] = [];
-		for (const run of runs) {
-			this.toolProgress[run.toolCallId] = run.progress;
-			results.push({ toolCallId: run.toolCallId, content: run.content, isError: run.isError });
-		}
-		return results;
 	}
 
 	/* --------------------------------------------------------------- settings */
@@ -846,6 +839,19 @@ export class AppState {
 		this.settings = { ...this.settings, theme: { ...this.settings.theme, ...theme } };
 		applyTheme(this.settings.theme);
 		await this.saveSettings({ theme: this.settings.theme });
+	}
+
+	/** Sets one tool to off, ask first or on. The choice is global and persisted. */
+	async setToolMode(name: string, mode: ToolMode): Promise<void> {
+		const modes = { ...this.settings.tools.modes, [name]: mode };
+		this.settings = { ...this.settings, tools: { ...this.settings.tools, modes } };
+		await this.saveSettings({ tools: this.settings.tools });
+	}
+
+	/** The mode of a tool, with the default of its catalog entry as the fallback. */
+	toolMode(name: string): ToolMode {
+		const spec = TOOL_CATALOG.find((tool) => tool.name === name);
+		return this.settings.tools.modes[name] ?? spec?.defaultMode ?? 'off';
 	}
 
 	/* --------------------------------------------------------------- providers */

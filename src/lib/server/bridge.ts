@@ -3,21 +3,21 @@ import { streamChat, toUpstreamMessages, type ChatPayload } from './openai';
 import { toolNamesFor, upstreamTools } from '$lib/shared/tools';
 import { skillsSection } from '$lib/shared/skills';
 import { parseExtra, PROTECTED_BODY_KEYS, resolveParams } from '$lib/shared/params';
-import type { Message, Provider, RuntimeTimings, ToolCall, ToolResult, Usage } from '$lib/shared/types';
+import type { Message, Provider, RuntimeTimings, ToolCall, Usage } from '$lib/shared/types';
 import type { SseWriter } from './sse';
+import { modeOf, runTool } from './tools';
+import { waitForApproval } from './approvals';
 
 /**
  * Drives one assistant turn: build the upstream payload, stream it into the
- * database row, and forward the deltas to the browser as SSE events. Tool calls
- * are executed by the browser, which posts results back to /api/chat/tools.
+ * database row, and forward the deltas to the browser as SSE events. The tools
+ * run here too, so the turn finishes with no page open.
  */
 
 export interface TurnRequest {
 	conversationId: string;
 	providerId?: string;
 	model?: string;
-	/** False skips tool advertisement, used when the user turns tools off. */
-	useTools?: boolean;
 }
 
 export class TurnError extends Error {}
@@ -44,7 +44,7 @@ function resolveTarget(req: TurnRequest): { provider: Provider; model: string } 
  * Builds the request body from the merged parameter layers and the stored
  * history. The `extra` JSON field is merged last so provider specific knobs win.
  */
-function generationOptions(model: string, conversationId: string, useTools: boolean): ChatPayload {
+function generationOptions(model: string, conversationId: string): ChatPayload {
 	const settings = getSettings();
 	const conversation = getConversation(conversationId);
 	const params = resolveParams(
@@ -69,11 +69,10 @@ function generationOptions(model: string, conversationId: string, useTools: bool
 	// Skills are advertised by name and description; the text is loaded on demand.
 	const skills = skillsSection(enabledSkills());
 	const names = toolNamesFor({
-		webSearch: settings.tools.webSearch,
-		webFetch: settings.tools.webFetch,
+		modes: settings.tools.modes,
 		skills: skills.length > 0
 	});
-	if (useTools && names.length) {
+	if (names.length) {
 		payload.tools = upstreamTools(names);
 		payload.tool_choice = params.toolChoice;
 	}
@@ -144,7 +143,7 @@ async function streamIntoAssistant(
 	assistantId: string,
 	w: SseWriter,
 	signal: AbortSignal
-): Promise<void> {
+): Promise<{ toolCalls: ToolCall[]; finishReason: string; usage: Usage }> {
 	let textBuf = '';
 	let reasoningBuf = '';
 	let textAll = '';
@@ -234,7 +233,8 @@ async function streamIntoAssistant(
 	for (const call of toolCalls) {
 		w.send({ type: 'tool_call', call });
 	}
-	w.send({ type: 'done', finishReason: result.finishReason ?? 'stop', usage, messageId: assistantId });
+	// The caller sends done, because a tool round continues the same turn.
+	return { toolCalls, finishReason: result.finishReason ?? 'stop', usage };
 }
 
 function parseArgs(raw: string): unknown {
@@ -246,57 +246,126 @@ function parseArgs(raw: string): unknown {
 	}
 }
 
+/**
+ * Runs one turn to the end: stream an answer, run the tools it asks for on the
+ * server, and continue until the model stops asking. A tool in the mode ask
+ * first holds the turn until the user answers.
+ */
 export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSignal): Promise<void> {
 	const { provider, model } = resolveTarget(req);
-	const useTools = req.useTools !== false;
-	const payload = generationOptions(model, req.conversationId, useTools);
 
+	// Close anything a lost turn left open before the history goes upstream.
+	closeDanglingToolCalls(req.conversationId);
+
+	let payload = generationOptions(model, req.conversationId);
 	if (!payload.messages.length) throw new TurnError('Nothing to send: the conversation is empty');
 
-	const assistant = appendMessage({ conversationId: req.conversationId, role: 'assistant', model });
-	w.send({ type: 'start', messageId: assistant.id });
-	// Recording the assistant row makes the conversation dirty, keep ordering sane.
-	touchConversation(req.conversationId);
+	for (let round = 0; ; round++) {
+		const assistant = appendMessage({ conversationId: req.conversationId, role: 'assistant', model });
+		w.send({ type: 'start', messageId: assistant.id });
+		// Recording the assistant row makes the conversation dirty, keep ordering sane.
+		touchConversation(req.conversationId);
 
-	try {
-		await streamIntoAssistant(provider, payload, assistant.id, w, signal);
-	} catch (err) {
-		const message = errorMessage(err);
-		// Partial text is already in the database, so a reload shows what arrived.
+		let result: { toolCalls: ToolCall[]; finishReason: string; usage: Usage };
+		try {
+			result = await streamIntoAssistant(provider, payload, assistant.id, w, signal);
+		} catch (err) {
+			const message = errorMessage(err);
+			// Partial text is already in the database, so a reload shows what arrived.
+			if (signal.aborted) {
+				w.send({ type: 'done', finishReason: 'aborted', messageId: assistant.id });
+			} else {
+				w.send({ type: 'error', message });
+			}
+			return;
+		}
+
 		if (signal.aborted) {
 			w.send({ type: 'done', finishReason: 'aborted', messageId: assistant.id });
-		} else {
-			w.send({ type: 'error', message });
+			return;
 		}
+		if (!result.toolCalls.length) {
+			w.send({ type: 'done', finishReason: result.finishReason, usage: result.usage, messageId: assistant.id });
+			return;
+		}
+		const limit = getSettings().tools.maxRounds;
+		if (round >= limit) {
+			w.send({ type: 'notice', message: `Stopped after ${limit} tool rounds` });
+			w.send({ type: 'done', finishReason: 'tool_limit', usage: result.usage, messageId: assistant.id });
+			return;
+		}
+
+		for (const call of result.toolCalls) {
+			// Read the settings again for each call, so a change during the turn
+			// takes effect at once. Always allow writes the mode while a tool waits.
+			const settings = getSettings();
+			const mode = modeOf(call.name, settings);
+			if (mode === 'off') {
+				writeToolRow(req.conversationId, call, 'Error: the user turned this tool off.', true);
+				w.send({ type: 'tool_result', toolCallId: call.id, isError: true, detail: 'turned off' });
+				continue;
+			}
+			if (mode === 'ask') {
+				w.send({ type: 'tool_ask', call });
+				const decision = await waitForApproval(req.conversationId, call, signal);
+				if (signal.aborted) {
+					w.send({ type: 'done', finishReason: 'aborted', messageId: assistant.id });
+					return;
+				}
+				if (decision !== 'allow') {
+					const why = decision === 'timeout' ? 'did not answer in time' : 'denied';
+					writeToolRow(req.conversationId, call, `Error: the user ${why} this tool call.`, true);
+					w.send({ type: 'tool_result', toolCallId: call.id, isError: true, detail: why });
+					continue;
+				}
+			}
+			const run = await runTool(call, settings, signal);
+			if (signal.aborted) {
+				w.send({ type: 'done', finishReason: 'aborted', messageId: assistant.id });
+				return;
+			}
+			writeToolRow(req.conversationId, call, run.content, run.isError === true);
+			w.send({
+				type: 'tool_result',
+				toolCallId: call.id,
+				isError: run.isError === true,
+				detail: run.detail,
+				data: run.data
+			});
+		}
+
+		// The results are in the history now, so the model answers them.
+		payload = generationOptions(model, req.conversationId);
 	}
 }
 
-/** Stores browser tool results, then continues the same assistant turn chain. */
-export async function continueWithToolResults(
-	conversationId: string,
-	results: ToolResult[],
-	w: SseWriter,
-	signal: AbortSignal
-): Promise<void> {
+/** Stores the result of one tool call, which is what the model reads back. */
+function writeToolRow(conversationId: string, call: ToolCall, content: string, isError: boolean): void {
+	appendMessage({
+		conversationId,
+		role: 'tool',
+		text: content,
+		toolCallId: call.id,
+		toolName: call.name,
+		isError
+	});
+}
+
+/**
+ * A turn that a restart killed leaves tool calls without an answer. Providers
+ * refuse that history, so close each call before the next request goes out.
+ */
+function closeDanglingToolCalls(conversationId: string): void {
 	const messages = listMessages(conversationId);
-	const nameByCall = new Map<string, string>();
-	for (const msg of messages) {
-		for (const call of msg.toolCalls ?? []) nameByCall.set(call.id, call.name);
+	const answered = new Set(
+		messages
+			.filter((message) => message.role === 'tool' && message.toolCallId)
+			.map((message) => message.toolCallId as string)
+	);
+	const last = messages[messages.length - 1];
+	if (!last || last.role !== 'assistant') return;
+	for (const call of last.toolCalls ?? []) {
+		if (answered.has(call.id)) continue;
+		writeToolRow(conversationId, call, 'Error: the turn stopped before this tool ran.', true);
 	}
-	const known = new Set<string>();
-	for (const msg of messages) {
-		if (msg.role === 'tool' && msg.toolCallId) known.add(msg.toolCallId);
-	}
-	for (const result of results) {
-		if (!result.toolCallId || known.has(result.toolCallId)) continue;
-		appendMessage({
-			conversationId,
-			role: 'tool',
-			text: result.content,
-			toolCallId: result.toolCallId,
-			toolName: nameByCall.get(result.toolCallId) ?? 'tool',
-			isError: result.isError === true
-		});
-	}
-	await runTurn({ conversationId }, w, signal);
 }

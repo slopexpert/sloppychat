@@ -16,8 +16,7 @@ export const POST = (async ({ request }) => {
 		startTurn({
 			conversationId: input.conversationId,
 			providerId: input.providerId,
-			model: input.model,
-			useTools: input.tools !== false
+			model: input.model
 		});
 	}
 	return attachResponse(request, input.conversationId);

@@ -1,5 +1,6 @@
 import { all, newId, now, one, run, tx } from './db';
 import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type Conversation, type Message, type Provider, type Settings } from '$lib/shared/types';
+import { migrateToolModes } from '$lib/shared/tools';
 import type { Skill } from '$lib/shared/skills';
 
 /** Typed helpers over the raw sql in db.ts. Rows are mapped to shared types here. */
@@ -112,8 +113,24 @@ export function getSettings(): Settings {
 		theme: { ...DEFAULT_SETTINGS.theme, ...saved.theme },
 		search: { ...DEFAULT_SETTINGS.search, ...saved.search },
 		generation: { ...DEFAULT_PARAMS, ...saved.generation },
-		tools: { ...DEFAULT_SETTINGS.tools, ...saved.tools },
+		tools: normalizeTools(saved.tools),
 		defaults: { ...DEFAULT_SETTINGS.defaults, ...saved.defaults }
+	};
+}
+
+/**
+ * The tools keep one mode per tool. Older rows hold a boolean per web tool, and
+ * this function turns those booleans into modes, so an upgrade keeps the choice.
+ * The old keys fall away on the next save.
+ */
+function normalizeTools(
+	saved?: Partial<Settings['tools']> & { webSearch?: boolean; webFetch?: boolean }
+): Settings['tools'] {
+	const { webSearch, webFetch, ...rest } = saved ?? {};
+	return {
+		...DEFAULT_SETTINGS.tools,
+		...rest,
+		modes: migrateToolModes({ modes: rest.modes, webSearch, webFetch })
 	};
 }
 
@@ -124,7 +141,7 @@ export function saveSettings(patch: Partial<Settings>): Settings {
 		theme: { ...getSettings().theme, ...patch.theme },
 		search: { ...getSettings().search, ...patch.search },
 		generation: { ...getSettings().generation, ...patch.generation },
-		tools: { ...getSettings().tools, ...patch.tools },
+		tools: normalizeTools({ ...getSettings().tools, ...patch.tools }),
 		defaults: { ...getSettings().defaults, ...patch.defaults }
 	};
 	run(
