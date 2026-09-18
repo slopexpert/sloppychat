@@ -1,12 +1,23 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
-import { deleteConversation, getConversation, listMessages, updateConversation } from '$lib/server/store';
+import {
+	deleteConversation,
+	getConversation,
+	listMessages,
+	listQueued,
+	updateConversation
+} from '$lib/server/store';
 import type { Conversation } from '$lib/shared/types';
 
 export const GET = (async ({ params }) => {
 	const conversation = getConversation(params.id);
 	if (!conversation) return bad('Conversation not found', 404);
-	return Response.json({ conversation, messages: listMessages(params.id) });
+	// The queue lives on the server now, so every window sees the same one.
+	return Response.json({
+		conversation,
+		messages: listMessages(params.id),
+		queued: listQueued(params.id)
+	});
 }) satisfies RequestHandler;
 
 export const PATCH = (async ({ params, request }) => {

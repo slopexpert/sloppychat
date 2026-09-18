@@ -7,6 +7,7 @@ import type {
 	Message,
 	ModelInfo,
 	ProviderDTO,
+	QueuedMessage,
 	Settings,
 	StreamEvent,
 	ToolResult
@@ -60,7 +61,9 @@ export const api = {
 	createConversation: (input: Partial<Conversation> = {}) =>
 		request<{ conversation: Conversation }>('/api/conversations', { method: 'POST', body: JSON.stringify(input) }),
 	getConversation: (id: string) =>
-		request<{ conversation: Conversation; messages: Message[] }>(`/api/conversations/${id}`),
+		request<{ conversation: Conversation; messages: Message[]; queued: QueuedMessage[] }>(
+			`/api/conversations/${id}`
+		),
 	updateConversation: (id: string, patch: Partial<Conversation>) =>
 		request<{ conversation: Conversation }>(`/api/conversations/${id}`, {
 			method: 'PATCH',
@@ -73,6 +76,18 @@ export const api = {
 			method: 'POST',
 			body: JSON.stringify(input)
 		}),
+	/** Holds a message until the turn in flight finishes. */
+	queueMessage: (
+		conversationId: string,
+		input: { text: string; images?: ImageRef[]; documents?: DocumentRef[] }
+	) =>
+		request<{ queued: QueuedMessage }>(`/api/conversations/${conversationId}/queue`, {
+			method: 'POST',
+			body: JSON.stringify(input)
+		}),
+	deleteQueued: (conversationId: string, id: string) =>
+		request<{ ok: true }>(`/api/conversations/${conversationId}/queue/${id}`, { method: 'DELETE' }),
+
 	deleteFrom: (conversationId: string, messageId: string) =>
 		request<{ removed: number }>(`/api/conversations/${conversationId}/messages/${messageId}`, { method: 'DELETE' }),
 

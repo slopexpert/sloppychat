@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Conversation, Message, StreamEvent } from '$lib/shared/types';
+import type { Conversation, QueuedMessage } from '$lib/shared/types';
 
 /**
- * Follow up messages typed while a turn streams must be queued and then sent in
- * order. The api module is mocked so the test drives the state machine directly:
- * each streamed turn stays open until the test releases it.
+ * The queue lives on the server now. The client posts a follow up to it while a
+ * turn runs, draws the queue from the conversation payload, and drops an entry
+ * that the user removes. The api module is mocked, so the test drives the state
+ * machine directly and each turn stays open until the test releases it.
  */
 
 const calls = {
-	added: [] as string[],
-	streams: [] as string[]
+	queued: [] as string[],
+	removed: [] as string[],
+	streams: [] as string[],
+	added: [] as string[]
 };
 
+/** The queue the mocked conversation payload reports. */
+let queued: QueuedMessage[] = [];
 let releaseStream: (() => void) | undefined;
-let failNextStream = false;
 
 vi.mock('$lib/client/api', () => {
 	class ApiError extends Error {
@@ -27,45 +31,47 @@ vi.mock('$lib/client/api', () => {
 	return {
 		ApiError,
 		api: {
-			addMessage: vi.fn(async (_id: string, input: { text: string }) => {
-				calls.added.push(input.text);
-				const message: Message = {
-					id: `m${calls.added.length}`,
-					conversationId: 'c1',
-					role: 'user',
+			queueMessage: vi.fn(async (_id: string, input: { text: string }) => {
+				calls.queued.push(input.text);
+				const item: QueuedMessage = {
+					id: `q${calls.queued.length}`,
 					text: input.text,
 					images: [],
-					createdAt: new Date(0).toISOString()
+					documents: []
 				};
-				return { message };
+				queued = [...queued, item];
+				return { queued: item };
 			}),
-			getConversation: vi.fn(async () => ({ conversation: conversation(), messages: [] })),
+			deleteQueued: vi.fn(async (_id: string, id: string) => {
+				calls.removed.push(id);
+				queued = queued.filter((item) => item.id !== id);
+				return { ok: true as const };
+			}),
+			addMessage: vi.fn(async (_id: string, input: { text: string }) => {
+				calls.added.push(input.text);
+				return { message: { id: `m${calls.added.length}`, conversationId: 'c1', role: 'user', text: input.text, images: [], createdAt: new Date(0).toISOString() } };
+			}),
+			getConversation: vi.fn(async () => ({ conversation: conversation(), messages: [], queued })),
 			listConversations: vi.fn(async () => ({ conversations: [conversation()] })),
 			stopTurn: vi.fn(async () => ({ stopped: true })),
 			getSettings: vi.fn(),
 			listProviders: vi.fn()
 		},
 		postStream: vi.fn(
-			async (url: string, _body: unknown, _signal: AbortSignal, onEvent: (e: StreamEvent) => void) => {
+			async (url: string, _body: unknown, _signal: AbortSignal, onEvent: (event: never) => void) => {
 				calls.streams.push(url);
 				const id = `a${calls.streams.length}`;
-				onEvent({ type: 'start', messageId: id });
-				onEvent({ type: 'text', text: 'partial' });
-				// Every turn stays open until the test releases it, so failures can be
-				// triggered while a follow up is already queued.
-				await new Promise<void>((resolve, reject) => {
-					releaseStream = () => {
-						if (failNextStream) {
-							failNextStream = false;
-							reject(new Error('provider exploded'));
-							return;
-						}
-						resolve();
-					};
+				onEvent({ type: 'start', messageId: id } as never);
+				onEvent({ type: 'text', text: 'partial' } as never);
+				// The turn stays open until the test releases it, so a follow up can
+				// arrive while it still runs.
+				await new Promise<void>((resolve) => {
+					releaseStream = resolve;
 				});
-				onEvent({ type: 'done', finishReason: 'stop', messageId: id });
+				onEvent({ type: 'done', finishReason: 'stop', messageId: id } as never);
 			}
 		),
+		getStream: vi.fn(async () => undefined),
 		readEventStream: vi.fn()
 	};
 });
@@ -86,6 +92,7 @@ function conversation(): Conversation {
 const { AppState } = await import('$lib/client/state.svelte');
 const { api } = await import('$lib/client/api');
 const stopTurn = api.stopTurn as unknown as ReturnType<typeof vi.fn>;
+const queueMessage = api.queueMessage as unknown as ReturnType<typeof vi.fn>;
 
 function freshState() {
 	const state = new AppState();
@@ -115,133 +122,68 @@ async function tick(): Promise<void> {
 async function waitForStreams(count: number): Promise<void> {
 	for (let i = 0; i < 100 && calls.streams.length < count; i++) await tick();
 	expect(calls.streams.length, 'streams started').toBeGreaterThanOrEqual(count);
-	// One more turn of the loop so the state settles after the stream starts.
 	await tick();
 }
 
-/** Lets the open turn finish and waits for the follow up work it triggers. */
-async function release(): Promise<void> {
-	const resolve = releaseStream;
-	releaseStream = undefined;
-	resolve?.();
-	for (let i = 0; i < 5; i++) await tick();
-}
-
 beforeEach(() => {
-	stopTurn.mockClear();
-	calls.added = [];
+	calls.queued = [];
+	calls.removed = [];
 	calls.streams = [];
+	calls.added = [];
+	queued = [];
 	releaseStream = undefined;
-	failNextStream = false;
+	stopTurn.mockClear();
+	queueMessage.mockClear();
 });
 
-describe('follow up queue', () => {
-	it('sends a message straight away when nothing is running', async () => {
+describe('the follow up queue on the server', () => {
+	it('posts a follow up to the queue while the answer streams', async () => {
 		const state = freshState();
-		const sending = state.send('first');
+		const first = state.send('first question');
 		await waitForStreams(1);
-		expect(calls.added).toEqual(['first']);
-		expect(state.queued).toHaveLength(0);
-		await release();
-		await sending;
-		expect(state.running).toBe(false);
+
+		await state.send('follow up');
+
+		expect(calls.queued).toEqual(['follow up']);
+		expect(calls.added, 'a waiting message does not join the history yet').toEqual(['first question']);
+		expect(state.queued.map((item) => item.text)).toEqual(['follow up']);
+
+		releaseStream?.();
+		await first;
 	});
 
-	it('queues a message typed while the answer streams', async () => {
+	it('draws the queue from the conversation payload', async () => {
 		const state = freshState();
-		const sending = state.send('first');
-		await waitForStreams(1);
-		await state.send('second');
-		expect(calls.added).toEqual(['first']);
+		queued = [{ id: 'q1', text: 'from the server', images: [], documents: [] }];
+
+		await state.refreshMessages();
+
+		expect(state.queued.map((item) => item.text)).toEqual(['from the server']);
+	});
+
+	it('removes one waiting message through the route', async () => {
+		const state = freshState();
+		queued = [
+			{ id: 'q1', text: 'first', images: [], documents: [] },
+			{ id: 'q2', text: 'second', images: [], documents: [] }
+		];
+		await state.refreshMessages();
+
+		await state.removeQueued('q1');
+
+		expect(calls.removed).toEqual(['q1']);
 		expect(state.queued.map((item) => item.text)).toEqual(['second']);
-		await release();
-		await sending;
 	});
 
-	it('sends the queued message once the running turn finishes', async () => {
+	it('empties the list when the user stops the turn', async () => {
 		const state = freshState();
-		const sending = state.send('first');
-		await waitForStreams(1);
-		await state.send('second');
-		await release();
-		await sending;
-		await waitForStreams(2);
-		expect(calls.added).toEqual(['first', 'second']);
-		expect(state.queued).toHaveLength(0);
-		expect(state.running).toBe(true);
-		await release();
-		expect(state.running).toBe(false);
-	});
+		queued = [{ id: 'q1', text: 'dropped', images: [], documents: [] }];
+		await state.refreshMessages();
+		expect(state.queued).toHaveLength(1);
 
-	it('keeps several follow ups in order', async () => {
-		const state = freshState();
-		const sending = state.send('first');
-		await waitForStreams(1);
-		await state.send('second');
-		await state.send('third');
-		expect(state.queued.map((item) => item.text)).toEqual(['second', 'third']);
-		await release();
-		await sending;
-		await waitForStreams(2);
-		expect(calls.added).toEqual(['first', 'second']);
-		expect(state.queued.map((item) => item.text)).toEqual(['third']);
-		await release();
-		await waitForStreams(3);
-		expect(calls.added).toEqual(['first', 'second', 'third']);
-		await release();
-		expect(state.running).toBe(false);
-	});
-
-	it('lets a queued item be removed before it is sent', async () => {
-		const state = freshState();
-		const sending = state.send('first');
-		await waitForStreams(1);
-		await state.send('second');
-		state.removeQueued(state.queued[0].id);
-		expect(state.queued).toHaveLength(0);
-		await release();
-		await sending;
-		expect(calls.added).toEqual(['first']);
-		expect(calls.streams).toHaveLength(1);
-	});
-
-	it('drops the queue when the user stops, and stops the turn on the server', async () => {
-		const state = freshState();
-		const sending = state.send('first');
-		await waitForStreams(1);
-		await state.send('second');
 		state.stop();
+
 		expect(stopTurn).toHaveBeenCalledWith('c1');
-		expect(state.queued).toHaveLength(0);
-		await release();
-		await sending;
-		expect(calls.added).toEqual(['first']);
-		expect(calls.streams).toHaveLength(1);
-	});
-
-	it('refuses to send without a provider', async () => {
-		const state = freshState();
-		state.providers = [];
-		await state.send('nope');
-		expect(calls.added).toEqual([]);
-		expect(state.queued).toHaveLength(0);
-		expect(calls.streams).toHaveLength(0);
-	});
-
-	it('keeps the queue moving after a turn fails', async () => {
-		const state = freshState();
-		const sending = state.send('first');
-		await waitForStreams(1);
-		await state.send('second');
-		expect(state.queued.map((item) => item.text)).toEqual(['second']);
-		// The running turn fails, the queued follow up must still be sent.
-		failNextStream = true;
-		await release();
-		await sending;
-		await waitForStreams(2);
-		expect(calls.added).toEqual(['first', 'second']);
-		expect(state.queued).toHaveLength(0);
-		await release();
-		expect(state.running).toBe(false);
+		expect(state.queued).toEqual([]);
 	});
 });

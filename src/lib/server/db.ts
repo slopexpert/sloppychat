@@ -85,6 +85,17 @@ CREATE TABLE IF NOT EXISTS settings (
 	id   INTEGER PRIMARY KEY CHECK (id = 1),
 	data TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS queued_messages (
+	id              TEXT PRIMARY KEY,
+	conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+	seq             INTEGER NOT NULL,
+	text            TEXT NOT NULL DEFAULT '',
+	images          TEXT NOT NULL DEFAULT '[]',
+	documents       TEXT NOT NULL DEFAULT '[]',
+	created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS queued_conv ON queued_messages(conversation_id, seq);
 `;
 
 export interface DB {

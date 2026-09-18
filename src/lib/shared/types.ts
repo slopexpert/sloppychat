@@ -19,6 +19,14 @@ export interface DocumentRef {
 	chars: number;
 }
 
+/** A message held back until the running turn finishes. */
+export interface QueuedMessage {
+	id: string;
+	text: string;
+	images: ImageRef[];
+	documents: DocumentRef[];
+}
+
 export interface ToolCall {
 	id: string;
 	name: string;

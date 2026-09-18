@@ -24,9 +24,18 @@ interface Reply {
 /** The answers of the provider, in order, and the number of calls. */
 let replies: Reply[] = [];
 let calls = 0;
+/** Lets a test hold a stream open, so a message can arrive while a turn runs. */
+let pauseNext = false;
+let releaseStream: (() => void) | undefined;
 
 vi.mock('$lib/server/openai', () => ({
 	streamChat: vi.fn(async () => {
+		if (pauseNext) {
+			pauseNext = false;
+			await new Promise<void>((resolve) => {
+				releaseStream = resolve;
+			});
+		}
 		const reply = replies[calls] ?? { content: 'ANSWER' };
 		calls++;
 		return {
@@ -73,6 +82,8 @@ const storedCall: ToolCall = { id: 'call_1', name: 'read_skill', args: { name: '
 beforeEach(() => {
 	replies = [];
 	calls = 0;
+	pauseNext = false;
+	releaseStream = undefined;
 	const settings = store.getSettings();
 	store.saveSettings({ tools: { ...settings.tools, modes: {}, maxRounds: 6 } });
 	if (!store.getSkillByName('release-notes')) {
@@ -238,5 +249,91 @@ describe('a turn that asks for a tool', () => {
 		]);
 		expect(messages[2].isError).toBe(true);
 		expect(messages[2].text).toContain('stopped before this tool ran');
+	});
+});
+
+/** Waits for a condition that another part of the turn sets. */
+async function waitFor(ready: () => boolean): Promise<void> {
+	for (let step = 0; step < 200 && !ready(); step++) {
+		await new Promise((resolve) => setTimeout(resolve, 10));
+	}
+	expect(ready(), 'the condition holds').toBe(true);
+}
+
+describe('the follow-up queue', () => {
+	it('holds a message until the turn in flight ends, then runs it', async () => {
+		replies = [{ content: 'FIRST' }, { content: 'SECOND' }];
+		const conversationId = startConversation();
+		pauseNext = true;
+
+		hub.startTurn({ conversationId });
+		await waitFor(() => !!releaseStream);
+		const queued = store.queueMessage({ conversationId, text: 'and then?' });
+
+		// The waiting message is not part of the history yet.
+		expect(store.listMessages(conversationId).map((message) => message.role)).toEqual([
+			'user',
+			'assistant'
+		]);
+		expect(store.listQueued(conversationId).map((item) => item.id)).toEqual([queued.id]);
+
+		releaseStream?.();
+		await settle(conversationId);
+
+		const messages = store.listMessages(conversationId);
+		expect(messages.map((message) => message.role)).toEqual([
+			'user',
+			'assistant',
+			'user',
+			'assistant'
+		]);
+		expect(messages.at(-1)?.text).toBe('SECOND');
+		expect(store.listQueued(conversationId)).toEqual([]);
+	});
+
+	it('runs the queue in order, one turn per message', async () => {
+		replies = [{ content: 'FIRST' }, { content: 'SECOND' }, { content: 'THIRD' }];
+		const conversationId = startConversation();
+		pauseNext = true;
+
+		hub.startTurn({ conversationId });
+		await waitFor(() => !!releaseStream);
+		store.queueMessage({ conversationId, text: 'second question' });
+		store.queueMessage({ conversationId, text: 'third question' });
+
+		releaseStream?.();
+		await settle(conversationId);
+
+		const texts = store.listMessages(conversationId).map((message) => message.text);
+		expect(texts).toEqual([
+			'read the skill',
+			'FIRST',
+			'second question',
+			'SECOND',
+			'third question',
+			'THIRD'
+		]);
+		expect(store.listQueued(conversationId)).toEqual([]);
+	});
+
+	it('drops the queue when the user stops the turn', async () => {
+		replies = [{ content: 'FIRST' }];
+		const conversationId = startConversation();
+		pauseNext = true;
+
+		hub.startTurn({ conversationId });
+		await waitFor(() => !!releaseStream);
+		store.queueMessage({ conversationId, text: 'never sent' });
+
+		expect(hub.stopTurn(conversationId)).toBe(true);
+		// Stop is the user's choice, so the waiting messages go with the turn.
+		expect(store.listQueued(conversationId)).toEqual([]);
+
+		releaseStream?.();
+		await settle(conversationId);
+		expect(store.listMessages(conversationId).map((message) => message.role)).toEqual([
+			'user',
+			'assistant'
+		]);
 	});
 });

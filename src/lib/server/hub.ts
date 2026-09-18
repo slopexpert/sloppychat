@@ -2,7 +2,7 @@ import type { StreamEvent, ToolCall } from '$lib/shared/types';
 import { runTurn, type TurnRequest } from './bridge';
 import { pendingApproval } from './approvals';
 import type { SseWriter } from './sse';
-import { finalizeMessage, getMessage } from './store';
+import { appendMessage, clearQueued, finalizeMessage, getMessage, maybeTitleFromFirstMessage, takeQueued } from './store';
 
 /**
  * Turns run here, not in the browser.
@@ -28,8 +28,10 @@ export function isTurnRunning(conversationId: string): boolean {
 	return turns.has(conversationId);
 }
 
-/** Stops the running turn for a conversation. Only the user does this. */
+/** Stops the running turn for a conversation, and drops its waiting messages. */
 export function stopTurn(conversationId: string): boolean {
+	// Stop is the user's decision, so the queue goes with the turn.
+	clearQueued(conversationId);
 	const turn = turns.get(conversationId);
 	if (!turn) return false;
 	turn.controller.abort();
@@ -84,10 +86,31 @@ function begin(
 		} finally {
 			if (controller.signal.aborted) markInterrupted(turn);
 			turns.delete(conversationId);
+			// The queue belongs to the conversation, so the next message starts here,
+			// with no page involved. Stop clears the queue, so nothing is left to run.
+			if (!controller.signal.aborted) drainQueue(conversationId);
 		}
 	})();
 
 	return turn;
+}
+
+/**
+ * Starts the first message that waited for the turn just finished. The message
+ * joins the history only now, so a queued message is never half sent.
+ */
+function drainQueue(conversationId: string): void {
+	const next = takeQueued(conversationId);
+	if (!next) return;
+	appendMessage({
+		conversationId,
+		role: 'user',
+		text: next.text,
+		images: next.images,
+		documents: next.documents
+	});
+	maybeTitleFromFirstMessage(conversationId, next.text);
+	startTurn({ conversationId });
 }
 
 /** Starts a turn unless one is already running for that conversation. */

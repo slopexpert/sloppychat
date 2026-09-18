@@ -8,6 +8,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type ProviderDTO,
+	type QueuedMessage,
 	type Settings,
 	type StreamEvent,
 	type ThemeSettings,
@@ -44,12 +45,7 @@ export interface PendingDocument {
 }
 
 /** A message held back until the running turn finishes. */
-export interface QueuedMessage {
-	id: string;
-	text: string;
-	images: ImageRef[];
-	documents: DocumentRef[];
-}
+export type { QueuedMessage };
 
 const THEME_KEY = 'sloppychat:theme';
 const TOAST_MS = 7000;
@@ -107,7 +103,6 @@ export class AppState {
 
 	#controller: AbortController | null = null;
 	#toastId = 0;
-	#draining = false;
 	#pickingModel = false;
 
 	get provider(): ProviderDTO | undefined {
@@ -299,9 +294,10 @@ export class AppState {
 		// Switching chats only stops this page from watching, the turn runs on.
 		if (this.running) this.detach();
 		try {
-			const { conversation, messages } = await api.getConversation(id);
+			const { conversation, messages, queued } = await api.getConversation(id);
 			this.conversation = conversation;
 			this.messages = messages;
+			this.queued = queued ?? [];
 			this.toolProgress = {};
 			this.#rememberConversation(conversation.id);
 			// An older chat may predate model discovery.
@@ -406,8 +402,10 @@ export class AppState {
 
 	async refreshMessages(): Promise<void> {
 		if (!this.conversation) return;
-		const { messages } = await api.getConversation(this.conversation.id);
+		const { messages, queued } = await api.getConversation(this.conversation.id);
 		this.messages = messages;
+		// The queue lives on the server, so this is what any window shows.
+		this.queued = queued ?? [];
 	}
 
 	async deleteFrom(messageId: string): Promise<void> {
@@ -519,10 +517,17 @@ export class AppState {
 		this.pendingImages = [];
 		this.pendingDocuments = [];
 		if (this.running) {
-			this.queued = [
-				...this.queued,
-				{ id: crypto.randomUUID(), text: trimmed, images: sentImages, documents: documents.map((item) => item.document) }
-			];
+			// The server holds the queue, so a reload or a second window shows it.
+			try {
+				await api.queueMessage(this.conversation.id, {
+					text: trimmed,
+					images: sentImages,
+					documents: documents.map((item) => item.document)
+				});
+				await this.refreshMessages();
+			} catch (err) {
+				this.toast('error', errorText(err));
+			}
 			return;
 		}
 		const sent = await this.dispatch(trimmed, sentImages, documents.map((item) => item.document));
@@ -551,23 +556,13 @@ export class AppState {
 		return true;
 	}
 
-	removeQueued(id: string): void {
-		this.queued = this.queued.filter((item) => item.id !== id);
-	}
-
-	/** Sends everything that was typed while the previous turn was streaming. */
-	private async drainQueue(): Promise<void> {
-		if (this.#draining) return;
-		this.#draining = true;
+	async removeQueued(id: string): Promise<void> {
+		if (!this.conversation) return;
 		try {
-			while (this.queued.length) {
-				const [next, ...rest] = this.queued;
-				this.queued = rest;
-				const sent = await this.dispatch(next.text, next.images, next.documents);
-				if (!sent) break;
-			}
-		} finally {
-			this.#draining = false;
+			await api.deleteQueued(this.conversation.id, id);
+			this.queued = this.queued.filter((item) => item.id !== id);
+		} catch (err) {
+			this.toast('error', errorText(err));
 		}
 	}
 
@@ -626,9 +621,9 @@ export class AppState {
 			this.stopPrefillTimer();
 			this.#controller = null;
 			await this.refreshMessages().catch(() => {});
-			// A follow up typed during the turn starts now. The guard in drainQueue
-			// keeps this from recursing when called again from a nested turn.
-			if (this.queued.length) void this.drainQueue();
+			// The server starts the next queued message by itself, so this page only
+			// attaches to whatever runs now, and picks up the queue again.
+			if (!signal.aborted) void this.resume();
 		}
 	}
 

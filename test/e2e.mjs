@@ -55,20 +55,6 @@ function check(label, condition, extra = '') {
 	process.exitCode = 1;
 }
 
-/**
- * Records a defect that a later step of specs/plan.md repairs. The check passes
- * while the defect is present, and it fails after the behavior changes, so the
- * repair commit must replace the call with check().
- */
-function checkDefect(label, defectPresent, extra = '') {
-	if (defectPresent) {
-		passed++;
-		console.log(`ok   KNOWN DEFECT ${label}${extra ? ` - ${extra}` : ''}`);
-		return;
-	}
-	check(`${label} (the defect is gone: replace checkDefect with check)`, false, extra);
-}
-
 /* --------------------------------------------------------------- mock provider */
 
 function sse(res, chunks) {
@@ -279,6 +265,18 @@ async function json(url, init) {
 }
 
 /** Reads an SSE response and returns the parsed events. */
+/** Waits until a conversation satisfies a condition, or gives up. */
+async function waitForMessages(conversationId, predicate, timeoutMs = 10000) {
+	const deadline = Date.now() + timeoutMs;
+	for (;;) {
+		const answer = await json(`${APP}/api/conversations/${conversationId}`);
+		const messages = answer.body.messages ?? [];
+		if (predicate(messages)) return messages;
+		if (Date.now() > deadline) return messages;
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	}
+}
+
 async function readStream(url, payload, signal) {
 	const res = await fetch(url, {
 		method: 'POST',
@@ -845,11 +843,10 @@ try {
 		JSON.stringify(stoppedAnswer?.usage)
 	);
 
-	// The two defects that steps 3 and 4 of specs/plan.md repair. Both checks pass
-	// while the defect is present, so the repair must flip them to check().
+	// The two defects that step 1 wrote down, now repaired by steps 3 and 4.
 
-	// Defect 1: the browser runs the tools, so a turn stops after a tool call when
-	// no page is attached to run the call.
+	// The tool runs on the server, so a turn that asks for a tool finishes with
+	// no page attached.
 	const toolChat = await json(`${APP}/api/conversations`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
@@ -875,8 +872,8 @@ try {
 		`${stuckToolRows} tool rows, ${stuckAnswers} answers`
 	);
 
-	// Defect 2: a message that arrives while an answer streams waits in the page
-	// only, so the server answers the first question and stops.
+	// The queue lives on the server, so a message typed during a turn waits there,
+	// a reload keeps it, and it runs when the turn ends.
 	const busyChat = await json(`${APP}/api/conversations`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
@@ -890,24 +887,74 @@ try {
 	});
 	const firstTurn = readStream(`${APP}/api/chat`, { conversationId: busyId });
 	await new Promise((resolve) => setTimeout(resolve, 300));
-	await json(`${APP}/api/conversations/${busyId}/messages`, {
+	const queuedNow = await json(`${APP}/api/conversations/${busyId}/queue`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({ text: 'and what comes next?' })
 	});
-	await json(`${APP}/api/chat`, { conversationId: busyId });
+	check(
+		'a follow up joins the server queue',
+		queuedNow.status === 201 && !!queuedNow.body.queued?.id,
+		JSON.stringify(queuedNow.body)
+	);
+	const whileBusy = await json(`${APP}/api/conversations/${busyId}`);
+	check(
+		'the queue is visible to any window',
+		(whileBusy.body.queued ?? []).length === 1,
+		JSON.stringify(whileBusy.body.queued)
+	);
+	check(
+		'a waiting message stays out of the history',
+		!(whileBusy.body.messages ?? []).some((message) => message.text === 'and what comes next?'),
+		JSON.stringify((whileBusy.body.messages ?? []).map((message) => message.text))
+	);
 	await firstTurn;
-	await new Promise((resolve) => setTimeout(resolve, 1500));
-	const busyTurn = await json(`${APP}/api/conversations/${busyId}`);
-	const busyRows = busyTurn.body.messages ?? [];
-	const busyQuestions = busyRows.filter((message) => message.role === 'user').length;
-	const busyAnswers = busyRows.filter(
-		(message) => message.role === 'assistant' && message.text.length > 0
-	).length;
-	checkDefect(
-		'a message that arrives during a turn waits on the server',
-		busyQuestions === 2 && busyAnswers === 1,
-		`${busyQuestions} questions, ${busyAnswers} answers`
+	const drained = await waitForMessages(
+		busyId,
+		(messages) => messages.filter((message) => message.role === 'assistant' && message.text).length === 2
+	);
+	check(
+		'the queued message runs when the turn ends',
+		drained.filter((message) => message.role === 'assistant' && message.text).length === 2,
+		JSON.stringify(drained.map((message) => message.role))
+	);
+	const afterDrain = await json(`${APP}/api/conversations/${busyId}`);
+	check(
+		'the queue is empty after the drain',
+		(afterDrain.body.queued ?? []).length === 0,
+		JSON.stringify(afterDrain.body.queued)
+	);
+
+	// A chip can be removed before the turn it waits for ends.
+	const dropChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const dropId = dropChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${dropId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'slow stream please' })
+	});
+	const dropTurn = readStream(`${APP}/api/chat`, { conversationId: dropId });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const dropped = await json(`${APP}/api/conversations/${dropId}/queue`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'never sent' })
+	});
+	const removedQueued = await json(
+		`${APP}/api/conversations/${dropId}/queue/${dropped.body.queued?.id}`,
+		{ method: 'DELETE' }
+	);
+	check('a waiting message can be removed', removedQueued.status === 200, JSON.stringify(removedQueued.body));
+	await dropTurn;
+	const afterDrop = await waitForMessages(dropId, (messages) => messages.some((message) => message.role === 'assistant' && message.text));
+	check(
+		'a removed message never runs',
+		!afterDrop.some((message) => message.text === 'never sent') && (await json(`${APP}/api/conversations/${dropId}`)).body.queued.length === 0,
+		JSON.stringify(afterDrop.map((message) => message.text))
 	);
 
 	// Skills: a markdown file becomes instructions the model loads on demand.
