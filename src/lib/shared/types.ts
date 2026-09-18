@@ -131,6 +131,12 @@ export interface Message {
 	/** Set on role=tool messages: the call this message answers. */
 	toolCallId?: string;
 	toolName?: string;
+	/** The message this one follows, null for the first message of a chat. */
+	parentId?: string | null;
+	/** The ids that share this message's parent, in the order they were made. */
+	brothers?: string[];
+	/** Why the answer stopped, for example length when it ran out of room. */
+	finishReason?: string;
 	isError?: boolean;
 	model?: string;
 	usage?: Usage;
@@ -145,6 +151,8 @@ export interface Conversation {
 	system: string | null;
 	/** Per conversation overrides of DEFAULT_PARAMS. */
 	params: Partial<GenerationParams>;
+	/** The message the view follows, which is the end of one branch. */
+	activeLeafId?: string | null;
 	createdAt: string;
 	updatedAt: string;
 	messageCount?: number;
@@ -339,4 +347,6 @@ export interface ChatRequest {
 	conversationId: string;
 	providerId?: string;
 	model?: string;
+	/** Continue this answer, which stopped at the length limit. */
+	continueMessageId?: string;
 }

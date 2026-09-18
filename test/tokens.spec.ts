@@ -98,7 +98,7 @@ describe('the token probe', () => {
 
 	it('finds nothing on a plain API', async () => {
 		const support = await tokenSupport(provider('plain', 5403));
-		expect(support).toEqual({ counter: 'none', tokenIds: false, perToken: false });
+		expect(support).toEqual({ counter: 'none', tokenIds: false, perToken: false, continueFinal: false });
 	});
 
 	it('probes one time and then answers from the cache', async () => {

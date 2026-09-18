@@ -18,6 +18,7 @@ export const ICONS = {
 	sliders:
 		'<path d="M4 8h10"/><path d="M18 8h2"/><circle cx="16" cy="8" r="2"/><path d="M4 16h3"/><path d="M11 16h9"/><circle cx="9" cy="16" r="2"/>',
 	chevronDown: '<path d="M6 9.5l6 6 6-6"/>',
+	chevronLeft: '<path d="M14.5 6l-6 6 6 6"/>',
 	chevronRight: '<path d="M9.5 6l6 6-6 6"/>',
 	chevronsLeft: '<path d="M12 6l-6 6 6 6"/><path d="M18 6l-6 6 6 6"/>',
 	chevronsRight: '<path d="M6 6l6 6-6 6"/><path d="M12 6l6 6-6 6"/>',

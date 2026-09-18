@@ -27,9 +27,22 @@ let calls = 0;
 /** Lets a test hold a stream open, so a message can arrive while a turn runs. */
 let pauseNext = false;
 let releaseStream: (() => void) | undefined;
+/** The bodies the bridge sent, so a test can look at the request itself. */
+const payloads: Record<string, unknown>[] = [];
+
+vi.mock('$lib/server/tokens', () => ({
+	tokenSupport: vi.fn(async () => ({
+		counter: 'vllm',
+		tokenIds: true,
+		perToken: false,
+		continueFinal: true
+	})),
+	countPrompt: vi.fn(async () => undefined)
+}));
 
 vi.mock('$lib/server/openai', () => ({
-	streamChat: vi.fn(async () => {
+	streamChat: vi.fn(async (_provider: unknown, payload: Record<string, unknown>) => {
+		payloads.push(payload);
 		if (pauseNext) {
 			pauseNext = false;
 			await new Promise<void>((resolve) => {
@@ -84,6 +97,7 @@ beforeEach(() => {
 	calls = 0;
 	pauseNext = false;
 	releaseStream = undefined;
+	payloads.length = 0;
 	const settings = store.getSettings();
 	store.saveSettings({ tools: { ...settings.tools, modes: {}, maxRounds: 6 } });
 	if (!store.getSkillByName('release-notes')) {
@@ -335,5 +349,36 @@ describe('the follow-up queue', () => {
 			'user',
 			'assistant'
 		]);
+	});
+});
+
+describe('continuing an answer', () => {
+	it('adds to the row the answer already has', async () => {
+		replies = [{ content: ' and more' }];
+		const conversationId = startConversation();
+		const answer = store.appendMessage({ conversationId, role: 'assistant', text: 'cut off' });
+		store.finalizeMessage(answer.id, { text: 'cut off', finishReason: 'length' });
+		const before = store.listMessages(conversationId).length;
+
+		hub.startTurn({ conversationId, continueMessageId: answer.id });
+		await settle(conversationId);
+
+		const messages = store.listMessages(conversationId);
+		expect(messages, 'no second answer row').toHaveLength(before);
+		expect(messages.at(-1)?.id).toBe(answer.id);
+		expect(messages.at(-1)?.text).toBe('cut off and more');
+		expect(messages.at(-1)?.finishReason).toBe('stop');
+	});
+
+	it('asks a server that can do it to carry the answer on', async () => {
+		replies = [{ content: ' more' }];
+		const conversationId = startConversation();
+		const answer = store.appendMessage({ conversationId, role: 'assistant', text: 'half' });
+
+		hub.startTurn({ conversationId, continueMessageId: answer.id });
+		await settle(conversationId);
+
+		expect(payloads.at(-1)?.continue_final_message).toBe(true);
+		expect(payloads.at(-1)?.add_generation_prompt).toBe(false);
 	});
 });

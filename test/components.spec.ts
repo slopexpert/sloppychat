@@ -277,3 +277,30 @@ describe('ToolCallCard icons', () => {
 		expect(icon('something-else')).toContain('M14.7 6.3a1 1');
 	});
 });
+
+describe('the version control and Continue', () => {
+	it('shows 1/2 with a way to the other version', () => {
+		const body = renderMessage(
+			assistant({ id: 'a2', text: 'second version', brothers: ['a1', 'a2'] }),
+			false
+		);
+		expect(body).toContain('2/2');
+		expect(body).toContain('aria-label="Previous version"');
+		expect(body).toContain('aria-label="Next version"');
+	});
+
+	it('keeps the control away when there is one version', () => {
+		expect(renderMessage(assistant({ text: 'only one' }), false)).not.toContain('aria-label="Previous version"');
+	});
+
+	it('offers Continue only when the answer hit the length limit', () => {
+		const cut = renderMessage(assistant({ text: 'half an answer', finishReason: 'length' }), false);
+		expect(cut).toContain('aria-label="Continue this answer"');
+		const whole = renderMessage(assistant({ text: 'a whole answer', finishReason: 'stop' }), false);
+		expect(whole).not.toContain('aria-label="Continue this answer"');
+		// An answer that predates the reason has nothing to carry on.
+		expect(renderMessage(assistant({ text: 'older answer' }), false)).not.toContain(
+			'aria-label="Continue this answer"'
+		);
+	});
+});

@@ -116,7 +116,9 @@ describe('the stdio connection', () => {
 	});
 
 	it('gives up on a request that never answers', async () => {
-		const connection = await connect({ timeoutMs: 300 });
+		// A second, so a slow process start under a full test run is not the thing
+		// that times out: the call must be.
+		const connection = await connect({ timeoutMs: 1000 });
 		try {
 			await expect(connection.callTool('stall', {})).rejects.toThrow(/did not answer/i);
 		} finally {

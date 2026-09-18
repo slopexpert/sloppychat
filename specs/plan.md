@@ -9,7 +9,7 @@ In scope:
 - A queue on the server for the follow-up messages, which survives a reload.
 - Exact token counts for llama.cpp and vLLM.
 - An MCP client in the app, so the model gets the tools of an MCP server.
-- Branches for the messages, a Continue action, and a comparison of two models.
+- Branches for the messages and a Continue action.
 - Search across the chats, folders, tags, and pins.
 - An installable app (PWA).
 
@@ -22,6 +22,7 @@ Out of scope. You said no to the features below:
 - Notifications.
 - Retrieval with embeddings.
 - Memory.
+- A comparison of two models.
 - A separate approval switch for one chat, because the menu holds the same mode.
 - Code execution.
 - Access control.
@@ -67,11 +68,11 @@ Files: `src/lib/server/mcp/client.ts` (new), `src/lib/server/mcp/stdio.ts` (new)
 Test: A small MCP server for the tests gives an echo tool and an add tool. Tests cover the tool list, a call, a timeout, a crash, a bad answer, and an image result.
 Risk: A server that writes text to stdout can break the protocol. The reader ignores the lines without JSON.
 
-## Step 7. Add branches, Continue, and comparison
-Goal: an answer keeps the old answer, and two models can answer the same question.
-Work: Add `parent_id` to the messages and an active leaf to each conversation. A migration fills `parent_id` from the current sequence, so the old chats stay in the same order. The actions Retry and Edit make a brother message in place of the removal of the tail. Each message gets a small control `1/3` for the brothers. The action Continue appears when the answer stops at the length limit. Both backends support the prefill of an assistant message for the Continue action. The comparison view sends the same prompt to a second model in a parallel chat and shows the two answers side by side.
-Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/lib/server/bridge.ts`, `src/routes/api/conversations/[id]/+server.ts`, `src/lib/components/MessageItem.svelte`, `src/lib/components/CompareView.svelte` (new), `src/lib/client/state.svelte.ts`.
-Test: A migration test on a database with one chat. A test for the brothers. A test for Continue after the length limit. An e2e test for the comparison.
+## Step 7. Add branches and Continue
+Goal: an answer keeps the old answer, and an answer that ran out of room can go on.
+Work: Add `parent_id` to the messages and an active leaf to each conversation. A migration fills `parent_id` from the current sequence, so the old chats stay in the same order. The actions Retry and Edit make a brother message in place of the removal of the tail. Each message gets a small control `1/3` for the brothers. The action Continue appears when the answer stops at the length limit. Both backends support the prefill of an assistant message for the Continue action.
+Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/lib/server/bridge.ts`, `src/routes/api/conversations/[id]/+server.ts`, `src/lib/components/MessageItem.svelte`, `src/lib/client/state.svelte.ts`.
+Test: A migration test on a database with one chat. A test for the brothers and for the switch between them. A test for Continue after the length limit, which grows the same row.
 
 ## Step 8. Add search, folders, tags, and pins
 Goal: find an old chat fast, and put the chats in groups.

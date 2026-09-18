@@ -14,6 +14,8 @@ export interface TokenSupport {
 	tokenIds: boolean;
 	/** The server reports its own generation timings, for each token. */
 	perToken: boolean;
+	/** The server can continue an answer that is already partly written. */
+	continueFinal: boolean;
 	/** Context size of the loaded model, when the server reports it. */
 	contextLength?: number;
 }
@@ -85,14 +87,17 @@ async function probe(provider: Provider): Promise<TokenSupport> {
 			counter: 'llamacpp',
 			tokenIds: false,
 			perToken: true,
+			// llama.cpp continues a partial assistant message like the Claude API does.
+			continueFinal: false,
 			contextLength: Number.isFinite(nCtx) && nCtx > 0 ? nCtx : undefined
 		};
 	}
-	// vLLM answers POST /tokenize, and reports the prompt on the first chunk.
+	// vLLM answers POST /tokenize, reports the prompt on the first chunk, and can
+	// continue a partial answer with continue_final_message.
 	if ((await countText(provider, 'count')) !== undefined) {
-		return { counter: 'vllm', tokenIds: true, perToken: false };
+		return { counter: 'vllm', tokenIds: true, perToken: false, continueFinal: true };
 	}
-	return { counter: 'none', tokenIds: false, perToken: false };
+	return { counter: 'none', tokenIds: false, perToken: false, continueFinal: false };
 }
 
 /** Counts one piece of text, in the shapes the two servers accept. */

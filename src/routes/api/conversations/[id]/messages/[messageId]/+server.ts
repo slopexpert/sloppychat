@@ -1,12 +1,11 @@
 import type { RequestHandler } from './$types';
-import { deleteMessage, deleteMessagesFrom } from '$lib/server/store';
+import { deleteMessagesFrom } from '$lib/server/store';
 
-/** DELETE removes that message and everything after it, used by edit and retry. */
-export const DELETE = (async ({ params, url }) => {
-	const cascade = url.searchParams.get('cascade') !== '0';
-	if (cascade) {
-		return Response.json({ removed: deleteMessagesFrom(params.id, params.messageId) });
-	}
-	deleteMessage(params.messageId);
-	return Response.json({ removed: 1 });
+/**
+ * DELETE removes that message and everything below it, which is what the Delete
+ * action on a message does. With branches a message can have several children,
+ * so all of them go.
+ */
+export const DELETE = (async ({ params }) => {
+	return Response.json({ removed: deleteMessagesFrom(params.id, params.messageId) });
 }) satisfies RequestHandler;

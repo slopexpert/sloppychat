@@ -139,7 +139,13 @@ describe('ContextGauge', () => {
 });
 
 describe('withReportedWindow', () => {
-	const support = { counter: 'llamacpp' as const, tokenIds: false, perToken: true, contextLength: 4096 };
+	const support = {
+		counter: 'llamacpp' as const,
+		tokenIds: false,
+		perToken: true,
+		continueFinal: false,
+		contextLength: 4096
+	};
 
 	it('applies the window a llama.cpp server reports for its model', () => {
 		expect(withReportedWindow([{ id: 'mock-model' }], support)).toEqual([
@@ -149,7 +155,9 @@ describe('withReportedWindow', () => {
 
 	it('leaves a list alone when the server reports no window', () => {
 		const models = [{ id: 'mock-model' }];
-		expect(withReportedWindow(models, { counter: 'none', tokenIds: false, perToken: false })).toBe(models);
+		expect(
+			withReportedWindow(models, { counter: 'none', tokenIds: false, perToken: false, continueFinal: false })
+		).toBe(models);
 	});
 
 	it('leaves a list of several models as the provider gave it', () => {

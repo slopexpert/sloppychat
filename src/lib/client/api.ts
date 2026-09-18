@@ -97,6 +97,13 @@ export const api = {
 			body: JSON.stringify({ conversationId })
 		}),
 
+	/** Moves the reader to another branch, and returns the line it shows. */
+	setActiveBranch: (conversationId: string, messageId: string | null, exact = false) =>
+		request<{ conversation: Conversation; messages: Message[] }>(`/api/conversations/${conversationId}/active`, {
+			method: 'POST',
+			body: JSON.stringify({ messageId, exact })
+		}),
+
 	addMessage: (conversationId: string, input: { text: string; images?: ImageRef[]; documents?: DocumentRef[] }) =>
 		request<{ message: Message }>(`/api/conversations/${conversationId}/messages`, {
 			method: 'POST',

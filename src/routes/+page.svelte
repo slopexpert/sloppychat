@@ -37,6 +37,7 @@
 	{#if app.showParams}
 		<ParamsPanel />
 	{/if}
+
 </div>
 
 <SettingsModal bind:open={app.showSettings} />

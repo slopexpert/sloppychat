@@ -1,4 +1,4 @@
-import { appendMessage, defaultProvider, enabledSkills, finalizeMessage, getConversation, getProvider, getSettings, listMessages, touchConversation } from './store';
+import { appendMessage, defaultProvider, enabledSkills, finalizeMessage, getConversation, getMessage, getProvider, getSettings, listMessages, touchConversation } from './store';
 import { streamChat, toUpstreamMessages, type ChatPayload } from './openai';
 import { advertisedTools, upstreamToolsFrom } from '$lib/shared/tools';
 import { skillsSection } from '$lib/shared/skills';
@@ -20,6 +20,8 @@ export interface TurnRequest {
 	conversationId: string;
 	providerId?: string;
 	model?: string;
+	/** Continue this answer instead of starting a new one. */
+	continueMessageId?: string;
 }
 
 export class TurnError extends Error {}
@@ -172,12 +174,14 @@ async function streamIntoAssistant(
 	payload: ChatPayload,
 	assistantId: string,
 	w: SseWriter,
-	signal: AbortSignal
+	signal: AbortSignal,
+	/** Text the row already holds, when an answer is continued. */
+	seed = { text: '', reasoning: '' }
 ): Promise<{ toolCalls: ToolCall[]; finishReason: string; usage: Usage }> {
 	let textBuf = '';
 	let reasoningBuf = '';
-	let textAll = '';
-	let reasonAll = '';
+	let textAll = seed.text;
+	let reasonAll = seed.reasoning;
 	let emitted = false;
 	let lastFlush = Date.now();
 	/** Tokens the server counted for the chunks that are still buffered. */
@@ -264,10 +268,12 @@ async function streamIntoAssistant(
 	);
 
 	finalizeMessage(assistantId, {
-		text: result.content,
-		reasoning: result.reasoning || undefined,
+		// A continued answer keeps what it already had, then adds the rest.
+		text: seed.text + result.content,
+		reasoning: seed.reasoning + (result.reasoning || '') || undefined,
 		toolCalls: toolCalls.length ? toolCalls : [],
-		usage
+		usage,
+		finishReason: result.finishReason ?? 'stop'
 	});
 	for (const call of toolCalls) {
 		w.send({ type: 'tool_call', call });
@@ -300,16 +306,31 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 
 	let payload = await generationOptions(model, req.conversationId, support);
 	if (!payload.messages.length) throw new TurnError('Nothing to send: the conversation is empty');
+	// A continued answer asks the server to carry on with the last message.
+	const seed = req.continueMessageId ? getMessage(req.continueMessageId) : undefined;
+	if (seed && support.continueFinal) {
+		payload.continue_final_message = true;
+		payload.add_generation_prompt = false;
+	}
 
 	for (let round = 0; ; round++) {
-		const assistant = appendMessage({ conversationId: req.conversationId, role: 'assistant', model });
+		const assistant = seed
+			? seed
+			: appendMessage({ conversationId: req.conversationId, role: 'assistant', model });
 		w.send({ type: 'start', messageId: assistant.id });
 		// Recording the assistant row makes the conversation dirty, keep ordering sane.
 		touchConversation(req.conversationId);
 
 		let result: { toolCalls: ToolCall[]; finishReason: string; usage: Usage };
 		try {
-			result = await streamIntoAssistant(provider, payload, assistant.id, w, signal);
+			result = await streamIntoAssistant(
+				provider,
+				payload,
+				assistant.id,
+				w,
+				signal,
+				seed ? { text: seed.text, reasoning: seed.reasoning ?? '' } : undefined
+			);
 		} catch (err) {
 			const message = errorMessage(err);
 			// Partial text is already in the database, so a reload shows what arrived.

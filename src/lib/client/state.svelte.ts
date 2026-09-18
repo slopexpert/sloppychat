@@ -501,18 +501,74 @@ export class AppState {
 	}
 
 	/** Re-runs the answer for the most recent user message. */
+	/**
+	 * Carries on an answer that stopped at the length limit. The same row grows,
+	 * so the chat keeps one answer instead of two.
+	 */
+	async continueAnswer(messageId: string): Promise<void> {
+		await this.runLoop({
+			url: '/api/chat',
+			body: { ...this.turnBody(), continueMessageId: messageId }
+		});
+	}
+
+	/** Shows the branch that holds a message, which is what the 1/3 control does. */
+	async openBranch(messageId: string): Promise<void> {
+		if (!this.conversation) return;
+		try {
+			const { conversation, messages } = await api.setActiveBranch(this.conversation.id, messageId);
+			this.conversation = conversation;
+			this.messages = messages;
+			this.toolProgress = {};
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	/**
+	 * Answers the last question again. The old answer stays as a brother, so the
+	 * line goes back to the question first and the new answer hangs off it.
+	 */
 	async retry(): Promise<void> {
 		const index = [...this.messages].reverse().findIndex((m) => m.role === 'user');
 		if (index === -1) return;
 		const userIndex = this.messages.length - 1 - index;
+		const question = this.messages[userIndex];
 		const next = this.messages[userIndex + 1];
-		if (next) await this.deleteFrom(next.id);
+		if (next && this.conversation) {
+			// The question becomes the end of the line, so the new answer is its brother.
+			const { conversation, messages } = await api.setActiveBranch(
+				this.conversation.id,
+				question.id,
+				true
+			);
+			this.conversation = conversation;
+			this.messages = messages;
+		}
 		await this.runLoop({ url: '/api/chat', body: this.turnBody() });
 	}
 
-	/** Drops a user message and sends the edited text again. */
+	/**
+	 * Sends the edited text as a brother of the message it replaces, so the old
+	 * text and its answer stay in the tree.
+	 */
 	async editAndResend(messageId: string, text: string): Promise<void> {
-		await this.deleteFrom(messageId);
+		if (!this.conversation) return;
+		const original = this.messages.find((message) => message.id === messageId);
+		if (!original) return;
+		try {
+			// The new message takes the place of the old one, as its brother.
+			const { conversation, messages } = await api.setActiveBranch(
+				this.conversation.id,
+				original.parentId ?? null,
+				true
+			);
+			this.conversation = conversation;
+			this.messages = messages;
+		} catch (err) {
+			this.toast('error', errorText(err));
+			return;
+		}
 		await this.send(text);
 	}
 

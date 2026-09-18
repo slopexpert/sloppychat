@@ -114,6 +114,8 @@
 				onRetry={() => app.retry()}
 				onEdit={(text) => app.editAndResend(message.id, text)}
 				onDelete={() => app.deleteFrom(message.id)}
+				onBranch={(id) => app.openBranch(id)}
+				onContinue={(id) => app.continueAnswer(id)}
 			/>
 		{/each}
 	</div>

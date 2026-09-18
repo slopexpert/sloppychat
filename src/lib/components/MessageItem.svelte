@@ -22,7 +22,9 @@
 		prefilling = false,
 		onRetry,
 		onEdit,
-		onDelete
+		onDelete,
+		onBranch,
+		onContinue
 	}: {
 		message: Message;
 		toolResults: Record<string, { text: string; isError: boolean }>;
@@ -36,6 +38,10 @@
 		onRetry?: () => void;
 		onEdit?: (text: string) => void;
 		onDelete?: () => void;
+		/** Shows another version of this message, when it has brothers. */
+		onBranch?: (messageId: string) => void;
+		/** Carries an answer on when it stopped at the length limit. */
+		onContinue?: (messageId: string) => void;
 	} = $props();
 
 	let editing = $state(false);
@@ -74,10 +80,42 @@
 		setTimeout(() => (copied = false), 1500);
 	}
 
+	/** The versions of this message: the messages that share its parent. */
+	const brothers = $derived(message.brothers ?? [message.id]);
+	const branchIndex = $derived(Math.max(0, brothers.indexOf(message.id)));
+
 	const stats = $derived(formatUsageLine(message.usage));
 	const brief = $derived(formatBriefStats(message.usage));
 	const statsHint = $derived(usageTooltip(message.usage));
 </script>
+
+{#snippet branchControl()}
+	{#if brothers.length > 1}
+		<span class="flex shrink-0 items-center gap-0.5 text-xs text-faint">
+			<button
+				class="px-0.5 hover:text-accent disabled:opacity-30"
+				disabled={branchIndex === 0}
+				onclick={() => onBranch?.(brothers[branchIndex - 1])}
+				title="Previous version"
+				aria-label="Previous version"
+			>
+				<Icon name="chevronLeft" size={13} />
+			</button>
+			<span title="Version {branchIndex + 1} of {brothers.length}">
+				{branchIndex + 1}/{brothers.length}
+			</span>
+			<button
+				class="px-0.5 hover:text-accent disabled:opacity-30"
+				disabled={branchIndex === brothers.length - 1}
+				onclick={() => onBranch?.(brothers[branchIndex + 1])}
+				title="Next version"
+				aria-label="Next version"
+			>
+				<Icon name="chevronRight" size={13} />
+			</button>
+		</span>
+	{/if}
+{/snippet}
 
 {#if message.role === 'user'}
 	<div class="group flex justify-end">
@@ -128,6 +166,8 @@
 						class="flex flex-wrap items-center justify-end gap-2 text-xs text-faint"
 						role={prefilling ? 'status' : undefined}
 					>
+						<!-- The version control stays in view; the rest appears on hover. -->
+						{@render branchControl()}
 						<!-- The actions come first so the speed indicator ends flush with the
 						     right edge, even while the buttons are invisible. -->
 						<span class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -216,8 +256,9 @@
 			<Markdown text={message.text} />
 		{/if}
 
-		<!-- Statistics and the hover actions share one line. -->
+		<!-- Statistics, the version control and the hover actions share one line. -->
 		<div class="flex flex-wrap items-center gap-2 text-xs text-faint">
+			{@render branchControl()}
 			{#if streaming && (message.text || message.reasoning) && streamRate !== undefined}
 				<span class="flex items-center gap-1.5" role="status">
 					<Icon name="gauge" size={13} />
@@ -250,6 +291,17 @@
 						aria-label="Regenerate the answer"
 					>
 						<Icon name="refresh" size={14} />
+					</button>
+				{/if}
+				{#if message.finishReason === 'length' && message.text}
+					<!-- The answer hit the limit, so it can be carried on. -->
+					<button
+						class="icon-btn-ghost"
+						onclick={() => onContinue?.(message.id)}
+						title="Continue this answer, which hit the length limit"
+						aria-label="Continue this answer"
+					>
+						<Icon name="chevronsRight" size={14} />
 					</button>
 				{/if}
 				<button

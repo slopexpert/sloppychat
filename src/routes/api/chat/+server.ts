@@ -16,7 +16,8 @@ export const POST = (async ({ request }) => {
 		startTurn({
 			conversationId: input.conversationId,
 			providerId: input.providerId,
-			model: input.model
+			model: input.model,
+			continueMessageId: input.continueMessageId
 		});
 	}
 	return attachResponse(request, input.conversationId);

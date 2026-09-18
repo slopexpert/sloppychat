@@ -135,6 +135,30 @@ function migrate(sqlite: DatabaseSync): void {
 	if (!messageColumns.some((column) => column.name === 'documents')) {
 		sqlite.exec("ALTER TABLE messages ADD COLUMN documents TEXT NOT NULL DEFAULT '[]'");
 	}
+	if (!messageColumns.some((column) => column.name === 'finish_reason')) {
+		sqlite.exec('ALTER TABLE messages ADD COLUMN finish_reason TEXT');
+	}
+	// An older chat is one line, so each message follows the one before it, and
+	// the last message of the chat is the end of that line.
+	if (!messageColumns.some((column) => column.name === 'parent_id')) {
+		sqlite.exec('ALTER TABLE messages ADD COLUMN parent_id TEXT');
+		sqlite.exec(
+			`UPDATE messages SET parent_id = (
+				SELECT previous.id FROM messages AS previous
+				WHERE previous.conversation_id = messages.conversation_id AND previous.seq < messages.seq
+				ORDER BY previous.seq DESC LIMIT 1
+			)`
+		);
+		sqlite.exec('CREATE INDEX IF NOT EXISTS messages_parent ON messages(parent_id)');
+	}
+	if (!columns.some((column) => column.name === 'active_leaf_id')) {
+		sqlite.exec('ALTER TABLE conversations ADD COLUMN active_leaf_id TEXT');
+		sqlite.exec(
+			`UPDATE conversations SET active_leaf_id = (
+				SELECT id FROM messages WHERE messages.conversation_id = conversations.id ORDER BY seq DESC LIMIT 1
+			)`
+		);
+	}
 }
 
 export function dbPath(): string {
