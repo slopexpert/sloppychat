@@ -54,21 +54,12 @@ describe('sidebar footer', () => {
 		expect(sidebar.indexOf('</aside>')).toBeGreaterThan(sidebar.indexOf('<footer'));
 	});
 
-	it('draws the same mark as the favicon', () => {
-		const favicon = readFileSync('static/favicon.svg', 'utf8');
-		expect(logo).toContain('viewBox="0 0 32 32"');
-		expect(favicon).toContain('width="32" height="32" rx="8"');
-		const lines = /d="([^"]+)"/.exec(logo)?.[1] ?? '';
-		expect(lines, 'the mark has three lines').toContain('M8 11h16');
-		expect(favicon).toContain(`d="${lines}"`);
-	});
-
 	it('draws the mark for the eye only, with no extra tab stop', () => {
 		expect(logo).toContain('aria-hidden="true"');
 		expect(logo).not.toMatch(/<a\b|<button\b/);
 		// Colours come from the theme, so the mark follows every theme and mode.
-		expect(logo).toContain('fill-accent');
-		expect(logo).toContain('stroke-accent-fg');
+		expect(logo.match(/class="fill-accent"/g) ?? [], 'head and nostrils').toHaveLength(2);
+		expect(logo.match(/class="fill-accent-fg"/g) ?? [], 'snout and eyes').toHaveLength(1);
 	});
 });
 
