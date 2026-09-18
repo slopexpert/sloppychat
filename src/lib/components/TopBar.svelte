@@ -88,6 +88,20 @@
 		<Icon name={app.sidebarOpen ? 'chevronsLeft' : 'chevronsRight'} size={18} />
 	</button>
 
+	{#if !app.sidebarOpen}
+		<!-- The chat list carries the new chat button while it is on screen, so this
+		     one takes over only when the list is out of sight. Its height matches
+		     the icon buttons, which keeps the bar from growing on a collapse. -->
+		<button
+			class="btn-accent shrink-0 p-1.5"
+			title="New chat"
+			aria-label="New chat"
+			onclick={() => app.newConversation()}
+		>
+			<Icon name="plus" size={18} />
+		</button>
+	{/if}
+
 	{#if app.conversation}
 		<!-- One container for both states, so swapping the heading for the input
 		     cannot change the height of the bar or push the other controls. -->

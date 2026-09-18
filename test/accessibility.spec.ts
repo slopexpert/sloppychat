@@ -265,6 +265,19 @@ describe('page structure', () => {
 		expect(header).not.toContain('sloppychat');
 	});
 
+	it('keeps one new chat button, in the bar once the list is out of sight', () => {
+		const withList = render(Page).body;
+		const barWithList = /<header[\s\S]*?<\/header>/.exec(withList)?.[0] ?? '';
+		expect(barWithList).not.toContain('aria-label="New chat"');
+		expect(withList.match(/aria-label="New chat"/g) ?? [], 'the list holds the button').toHaveLength(1);
+
+		app.sidebarOpen = false;
+		const withoutList = render(Page).body;
+		const bar = /<header[\s\S]*?<\/header>/.exec(withoutList)?.[0] ?? '';
+		expect(bar, 'the bar takes over').toContain('aria-label="New chat"');
+		expect(withoutList.match(/aria-label="New chat"/g) ?? [], 'only the bar holds it').toHaveLength(1);
+	});
+
 	it('keeps the composer controls inside the floating card', () => {
 		const { body } = render(Page);
 		const cardStart = body.indexOf('card bg-surface/95');

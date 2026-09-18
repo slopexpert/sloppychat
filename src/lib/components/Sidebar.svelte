@@ -1,5 +1,6 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
+	import Logo from './Logo.svelte';
 	import { app } from '$lib/client/state.svelte';
 
 	/** Focuses the rename box as soon as it appears. */
@@ -142,4 +143,9 @@
 			</p>
 		{/if}
 	</nav>
+
+	<!-- Outside the list, so the chats never push the mark out of sight. -->
+	<footer class="border-t border-line px-3 py-3 text-faint">
+		<Logo size={22} />
+	</footer>
 </aside>
