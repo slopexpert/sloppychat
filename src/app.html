@@ -103,39 +103,6 @@
 			}
 		</style>
 		%sveltekit.head%
-		<!-- TEMP: report which elements can scroll, the way Tridactyl searches. -->
-		<script>
-			setTimeout(() => {
-				const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_ELEMENT);
-				const found = [];
-				do {
-					const el = walker.currentNode;
-					const before = el.scrollTop;
-					el.scrollTop = before + 50;
-					if (el.scrollTop !== before) {
-						found.push(el);
-						el.scrollTop = before;
-					}
-				} while (walker.nextNode());
-				const describe = (el) => {
-					const name = el.tagName.toLowerCase();
-					const cls = (el.className || '').toString().split(' ').slice(0, 4).join('.');
-					const scroll = el.scrollHeight + '>' + el.clientHeight;
-					return `${name}.${cls} [${scroll}]`;
-				};
-				const lines = [
-					'active element: ' + describe(document.activeElement),
-					'first scrollable elements in document order:',
-					...found.slice(0, 6).map((el, index) => `${index + 1}. ${describe(el)}`)
-				];
-				const box = document.createElement('div');
-				box.id = 'scroll-report';
-				box.style.cssText =
-					'position:fixed;left:0;right:0;bottom:0;z-index:99;background:#000;color:#0f0;font:11px monospace;padding:6px;white-space:pre-wrap';
-				box.textContent = lines.join('\n');
-				document.body.append(box);
-			}, 1500);
-		</script>
 	</head>
 	<body data-sveltekit-preload-data="hover">
 		<!-- Replaced as soon as the app mounts, see src/routes/+layout.svelte. -->
