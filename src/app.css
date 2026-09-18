@@ -1,0 +1,614 @@
+@import 'tailwindcss';
+
+/* Dark mode is driven by data-mode on <html>, set before first paint in app.html. */
+@custom-variant dark (&:where([data-mode='dark'], [data-mode='dark'] *));
+
+@theme inline {
+	--color-bg: var(--bg);
+	--color-surface: var(--surface);
+	--color-raised: var(--raised);
+	--color-line: var(--line);
+	--color-fg: var(--fg);
+	--color-muted: var(--muted);
+	--color-faint: var(--faint);
+	--color-accent: var(--accent);
+	--color-accent-fg: var(--accent-fg);
+	--color-accent-soft: var(--accent-soft);
+	--color-secondary: var(--secondary);
+	--color-danger: var(--danger);
+	--color-ok: var(--ok);
+	/* Appearance settings drive these, so every utility follows the choice. */
+	--font-sans: var(--ui-font);
+	--font-mono: var(--code-font);
+	--radius-lg: var(--radius-control);
+	--radius-card: var(--radius-card-size);
+	--text-body: var(--text-body-size);
+}
+
+:root {
+	--ui-font-system: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, Cantarell, sans-serif;
+	--ui-font-custom: var(--ui-font-system);
+	--ui-font: var(--ui-font-system);
+	--code-font: ui-monospace, 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+	--radius-control: 0.5rem;
+	--radius-card-size: 0.75rem;
+	/* Smaller radii follow the same choice, so inline code and thumbnails match. */
+	--radius-sm: calc(var(--radius-control) * 0.5);
+	--radius-md: calc(var(--radius-control) * 0.75);
+	--radius-xl: calc(var(--radius-control) * 1.5);
+	--text-body-size: 0.9375rem;
+	/* Tailwind spacing utilities are calc(var(--spacing) * n), so this one value
+	   is the density control for the whole interface. */
+	--spacing: 0.25rem;
+	--bg: #f7f7f5;
+	--surface: #ffffff;
+	--raised: #f0f0ec;
+	--line: #dfdfd8;
+	--fg: #1b1b19;
+	--muted: #6b6b64;
+	--faint: #767669;
+	--danger: #b3261e;
+	--ok: #146c2e;
+	--accent-fg: #ffffff;
+	/* Italic text tone: follows the accent, stays readable in both modes. */
+	--secondary: color-mix(in oklab, var(--accent) 45%, var(--muted));
+	color-scheme: light;
+}
+
+[data-mode='dark'] {
+	--bg: #101013;
+	--surface: #17171c;
+	--raised: #1f1f26;
+	--line: #2c2c35;
+	--fg: #e8e8e6;
+	--muted: #9d9da8;
+	--faint: #8f8f9b;
+	--danger: #ff6b61;
+	--ok: #4ade80;
+	--accent-fg: #0b0b0d;
+	color-scheme: dark;
+}
+
+/* Appearance choices, applied as data attributes on <html> by applyTheme. */
+/* The typed font is injected as --ui-font-custom; the stack lives in CSS. */
+[data-font='custom'] {
+	--ui-font: var(--ui-font-custom);
+}
+
+[data-text='small'] {
+	--text-body-size: 0.875rem;
+}
+[data-text='large'] {
+	--text-body-size: 1.0625rem;
+}
+
+[data-radius='square'] {
+	--radius-control: 0rem;
+	--radius-card-size: 0rem;
+}
+[data-radius='small'] {
+	--radius-control: 0.25rem;
+	--radius-card-size: 0.375rem;
+}
+[data-radius='large'] {
+	--radius-control: 0.75rem;
+	--radius-card-size: 1.25rem;
+}
+[data-radius='round'] {
+	--radius-control: 1rem;
+	--radius-card-size: 1.75rem;
+}
+
+[data-density='compact'] {
+	--spacing: 0.2rem;
+}
+[data-density='spacious'] {
+	--spacing: 0.32rem;
+}
+
+/* The default palette: colours come from the mode blocks, only the accent is set here. */
+[data-theme='sloppy'] {
+	--accent: #0f766e;
+	--accent-fg: #ffffff;
+}
+[data-theme='sloppy'][data-mode='dark'] {
+	--accent: #2dd4bf;
+	--accent-fg: #0b0b0d;
+}
+
+/* Rose Pine, https://rose-pine.org. Love is the accent, iris the italic tone. */
+[data-theme='rose-pine'] {
+	--bg: #191724;
+	--surface: #1f1d2e;
+	--raised: #26233a;
+	--line: #26233a;
+	--fg: #e0def4;
+	--muted: #908caa;
+	--faint: #6e6a86;
+	--accent: #eb6f92;
+	--accent-fg: #191724;
+	--secondary: #c4a7e7;
+	--danger: #f6c177;
+	--ok: #9ccfd8;
+}
+/* Rose Pine Moon, https://rose-pine.org. Love is the accent, iris the italic tone. */
+[data-theme='rose-pine-moon'] {
+	--bg: #232136;
+	--surface: #2a273f;
+	--raised: #393552;
+	--line: #393552;
+	--fg: #e0def4;
+	--muted: #908caa;
+	--faint: #6e6a86;
+	--accent: #eb6f92;
+	--accent-fg: #232136;
+	--secondary: #c4a7e7;
+	--danger: #f6c177;
+	--ok: #9ccfd8;
+}
+/* Rose Pine Dawn, https://rose-pine.org */
+[data-theme='rose-pine-dawn'] {
+	--bg: #faf4ed;
+	--surface: #fffaf3;
+	--raised: #f2e9e1;
+	--line: #f2e9e1;
+	--fg: #575279;
+	--muted: #797593;
+	--faint: #9893a5;
+	--accent: #286983;
+	--accent-fg: #faf4ed;
+	--danger: #b4637a;
+	--ok: #56949f;
+}
+/* Catppuccin Mocha, https://catppuccin.com */
+[data-theme='catppuccin-mocha'] {
+	--bg: #1e1e2e;
+	--surface: #181825;
+	--raised: #313244;
+	--line: #313244;
+	--fg: #cdd6f4;
+	--muted: #a6adc8;
+	--faint: #7f849c;
+	--accent: #cba6f7;
+	--accent-fg: #11111b;
+	--danger: #f38ba8;
+	--ok: #a6e3a1;
+}
+/* Catppuccin Macchiato, https://catppuccin.com */
+[data-theme='catppuccin-macchiato'] {
+	--bg: #24273a;
+	--surface: #1e2030;
+	--raised: #363a4f;
+	--line: #363a4f;
+	--fg: #cad3f5;
+	--muted: #a5adcb;
+	--faint: #8087a2;
+	--accent: #c6a0f6;
+	--accent-fg: #181926;
+	--danger: #ed8796;
+	--ok: #a6da95;
+}
+/* Catppuccin Frappe, https://catppuccin.com */
+[data-theme='catppuccin-frappe'] {
+	--bg: #303446;
+	--surface: #292c3c;
+	--raised: #414559;
+	--line: #414559;
+	--fg: #c6d0f5;
+	--muted: #a5adce;
+	--faint: #838ba7;
+	--accent: #ca9ee6;
+	--accent-fg: #232634;
+	--danger: #e78284;
+	--ok: #a6d189;
+}
+/* Catppuccin Latte, https://catppuccin.com */
+[data-theme='catppuccin-latte'] {
+	--bg: #eff1f5;
+	--surface: #e6e9ef;
+	--raised: #ccd0da;
+	--line: #ccd0da;
+	--fg: #4c4f69;
+	--muted: #6c6f85;
+	--faint: #8c8fa1;
+	--accent: #8839ef;
+	--accent-fg: #eff1f5;
+	--danger: #d20f39;
+	--ok: #40a02b;
+}
+/* Tokyo Night, https://github.com/folke/tokyonight.nvim */
+[data-theme='tokyo-night'] {
+	--bg: #1a1b26;
+	--surface: #16161e;
+	--raised: #292e42;
+	--line: #3b4261;
+	--fg: #c0caf5;
+	--muted: #a9b1d6;
+	--faint: #565f89;
+	--accent: #7aa2f7;
+	--accent-fg: #1a1b26;
+	--danger: #f7768e;
+	--ok: #9ece6a;
+}
+/* Tokyo Night Storm, https://github.com/folke/tokyonight.nvim */
+[data-theme='tokyo-night-storm'] {
+	--bg: #24283b;
+	--surface: #1f2335;
+	--raised: #292e42;
+	--line: #3b4261;
+	--fg: #c0caf5;
+	--muted: #a9b1d6;
+	--faint: #565f89;
+	--accent: #7aa2f7;
+	--accent-fg: #1a1b26;
+	--danger: #f7768e;
+	--ok: #9ece6a;
+}
+/* Gruvbox Light, https://github.com/morhetz/gruvbox */
+[data-theme='gruvbox-light'] {
+	--bg: #fbf1c7;
+	--surface: #f2e5bc;
+	--raised: #ebdbb2;
+	--line: #d5c4a1;
+	--fg: #3c3836;
+	--muted: #7c6f64;
+	--faint: #a89984;
+	--accent: #076678;
+	--accent-fg: #fbf1c7;
+	--danger: #9d0006;
+	--ok: #79740e;
+}
+/* VS Code Light Modern, https://github.com/microsoft/vscode */
+[data-theme='vscode-light-modern'] {
+	--bg: #ffffff;
+	--surface: #f8f8f8;
+	--raised: #e5e5e5;
+	--line: #cecece;
+	--fg: #3b3b3b;
+	--muted: #616161;
+	--faint: #6e7681;
+	--accent: #005fb8;
+	--accent-fg: #ffffff;
+	--danger: #c72e0f;
+	--ok: #2ea043;
+}
+/* Nord, https://nordtheme.com */
+[data-theme='nord'] {
+	--bg: #2e3440;
+	--surface: #3b4252;
+	--raised: #434c5e;
+	--line: #434c5e;
+	--fg: #eceff4;
+	--muted: #d8dee9;
+	--faint: #81a1c1;
+	--accent: #88c0d0;
+	--accent-fg: #2e3440;
+	--danger: #bf616a;
+	--ok: #a3be8c;
+}
+/* Gruvbox Dark, https://github.com/morhetz/gruvbox */
+[data-theme='gruvbox-dark'] {
+	--bg: #282828;
+	--surface: #1d2021;
+	--raised: #3c3836;
+	--line: #504945;
+	--fg: #ebdbb2;
+	--muted: #d5c4a1;
+	--faint: #a89984;
+	--accent: #fabd2f;
+	--accent-fg: #282828;
+	--danger: #fb4934;
+	--ok: #b8bb26;
+}
+/* VS Code Dark Modern, https://github.com/microsoft/vscode */
+[data-theme='vscode-dark-modern'] {
+	--bg: #1f1f1f;
+	--surface: #181818;
+	--raised: #2b2b2b;
+	--line: #3c3c3c;
+	--fg: #cccccc;
+	--muted: #9d9d9d;
+	--faint: #6e7681;
+	--accent: #0078d4;
+	--accent-fg: #ffffff;
+	--danger: #f85149;
+	--ok: #2ea043;
+}
+/* OLED: the default palette with a true black background */
+[data-theme='oled'] {
+	--bg: #000000;
+	--surface: #0a0a0a;
+	--raised: #161616;
+	--line: #262626;
+	--fg: #ededed;
+	--muted: #a3a3a3;
+	--faint: #737373;
+	--accent: #2dd4bf;
+	--accent-fg: #050505;
+	--danger: #ff6b61;
+	--ok: #4ade80;
+}
+
+
+html,
+body {
+	height: 100%;
+}
+
+body {
+	background: var(--bg);
+	color: var(--fg);
+	font-family: var(--font-sans);
+	-webkit-font-smoothing: antialiased;
+}
+
+/* Pointer feedback: anything clickable shows a hand, text fields show a caret. */
+button:not(:disabled),
+[role='button']:not([aria-disabled='true']),
+select:not(:disabled),
+label:has(> input[type='checkbox']:not(:disabled)),
+label:has(> input[type='range']:not(:disabled)),
+input[type='checkbox']:not(:disabled),
+input[type='range']:not(:disabled),
+input[type='file']:not(:disabled),
+summary,
+[role='tab'] {
+	cursor: pointer;
+}
+
+button:disabled,
+select:disabled,
+input:disabled {
+	cursor: not-allowed;
+}
+
+textarea,
+input[type='text'],
+input[type='number'],
+input[type='password'],
+input[type='search'],
+input[type='email'],
+input[type='url'],
+input:not([type]) {
+	cursor: text;
+}
+
+input[type='range'] {
+	cursor: grab;
+}
+
+input[type='range']:active {
+	cursor: grabbing;
+}
+
+/* Links and cards open things, so they get a hand too. */
+a[href],
+[data-clickable] {
+	cursor: pointer;
+}
+
+button:disabled * {
+	cursor: not-allowed;
+}
+
+* {
+	border-color: var(--line);
+}
+
+::selection {
+	background: color-mix(in oklab, var(--accent) 30%, transparent);
+}
+
+/* Keyboard focus must always be visible, mouse clicks stay quiet. The outline
+   follows the element's own radius, so it must not set one of its own. */
+:where(a, button, input, textarea, select, summary, [tabindex]):focus-visible {
+	outline: 2px solid var(--accent);
+	outline-offset: 2px;
+}
+
+:where(button):focus-visible {
+	outline-offset: 1px;
+}
+
+/* Respect users who ask for less movement. */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}
+
+/* Thin scrollbars that follow the theme */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--line) transparent;
+}
+
+@layer components {
+	.btn {
+		@apply inline-flex items-center gap-1.5 rounded-lg border border-line bg-raised px-2.5 py-1.5 text-sm text-fg transition-colors hover:bg-surface hover:text-accent disabled:opacity-50;
+	}
+	.btn-accent {
+		@apply inline-flex items-center gap-1.5 rounded-lg bg-accent px-3 py-1.5 text-sm font-medium text-accent-fg transition-opacity hover:opacity-90 disabled:opacity-50;
+	}
+	/* Square icon only buttons for chrome, the tooltip carries the label. */
+	.icon-btn {
+		@apply inline-flex items-center justify-center rounded-lg border border-line bg-raised p-1.5 text-muted transition-colors hover:bg-surface hover:text-accent disabled:opacity-50;
+	}
+	/* Borderless variant for actions that appear on hover. */
+	.icon-btn-ghost {
+		@apply inline-flex items-center justify-center rounded-lg p-1 text-faint transition-colors hover:bg-raised hover:text-accent disabled:opacity-50;
+	}
+	/**
+	 * Pressed state for a toggle. It must not read like a hover: a hover only
+	 * tints the icon, a pressed toggle fills and outlines the button.
+	 */
+	.icon-btn-on {
+		@apply border-accent bg-accent/15 text-accent hover:bg-accent/25 hover:text-accent;
+	}
+	.badge {
+		@apply ml-0.5 rounded-full bg-accent px-1 text-[0.625rem] leading-4 font-semibold text-accent-fg;
+	}
+	.field {
+		@apply w-full rounded-lg border border-line bg-surface px-2.5 py-1.5 text-sm text-fg outline-none placeholder:text-faint focus:border-accent;
+	}
+	.card {
+		@apply rounded-card border border-line bg-surface;
+	}
+	/**
+	 * Truncated text that must not become a scroll container. `overflow: hidden`
+	 * is still scrollable by script, which is what Tridactyl's j/k looks for, so
+	 * a one pixel overflow would swallow the scroll keys.
+	 */
+	.truncate-clip {
+		overflow: clip;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+	/** Skip link: out of the way until focused, without clipping its own text. */
+	.skip-link {
+		@apply absolute left-2 top-2 z-50 -translate-y-16 rounded-lg border border-accent bg-surface px-3 py-1.5 text-sm opacity-0 transition-transform;
+		pointer-events: none;
+	}
+	.skip-link:focus-visible {
+		@apply translate-y-0 opacity-100;
+		pointer-events: auto;
+	}
+}
+
+/* Rendered LaTeX. MathML needs no stylesheet, these rules only place it. */
+.md .math-inline {
+	display: inline;
+}
+.md .math-display {
+	display: block;
+	margin: 0.75rem 0;
+	overflow-x: auto;
+	overflow-y: hidden;
+	text-align: center;
+	padding: 0.25rem 0;
+}
+.md math {
+	font-size: 1.05em;
+}
+.md .math-display math {
+	font-size: 1.15em;
+}
+
+/* Fade under the floating composer so text never runs into it. */
+.composer-scrim {
+	background: linear-gradient(
+		to top,
+		var(--bg) 0%,
+		color-mix(in oklab, var(--bg) 75%, transparent) 55%,
+		transparent 100%
+	);
+}
+
+/* Prose output from the regex markdown renderer in lib/shared/markdown.ts */
+.md {
+	font-size: var(--text-body-size);
+	@apply leading-relaxed break-words;
+}
+.md > * + * {
+	@apply mt-3;
+}
+.md h1,
+.md h2,
+.md h3,
+.md h4 {
+	@apply font-semibold text-fg;
+}
+.md h1 {
+	@apply text-xl mt-5;
+}
+.md h2 {
+	@apply text-lg mt-5;
+}
+.md h3 {
+	@apply text-base mt-4;
+}
+.md h4 {
+	@apply text-sm mt-3;
+}
+/* Emphasis carries colour: bold takes the accent, italic the secondary tone. */
+.md strong {
+	color: var(--accent);
+	font-weight: 650;
+}
+.md em {
+	color: var(--secondary);
+}
+.md ul {
+	@apply list-disc pl-5;
+}
+.md ol {
+	@apply list-decimal pl-5;
+}
+.md li + li {
+	@apply mt-1;
+}
+.md li ul,
+.md li ol {
+	@apply mt-1;
+}
+.md a {
+	@apply text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent;
+}
+.md code:not(pre code) {
+	@apply rounded-sm bg-raised px-1 py-0.5 font-mono text-[0.85em] text-accent;
+}
+.md pre {
+	@apply overflow-x-auto rounded-card border border-line bg-raised p-3 text-[0.8125rem];
+}
+.md pre code {
+	@apply font-mono;
+}
+.md blockquote {
+	@apply border-l-2 border-accent/50 pl-3 text-muted;
+}
+.md hr {
+	@apply border-t border-line;
+}
+.md table {
+	@apply w-full border-collapse text-sm;
+}
+.md th,
+.md td {
+	@apply border border-line px-2 py-1 text-left;
+}
+.md th {
+	@apply bg-raised font-semibold;
+}
+.md img {
+	@apply max-w-full rounded-card border border-line;
+}
+.md del {
+	@apply text-faint;
+}
+
+/* Syntax tokens for fenced code, classes are set by the regex highlighter */
+.tok-key {
+	color: color-mix(in oklab, var(--accent) 80%, var(--fg));
+	font-weight: 600;
+}
+.tok-str {
+	color: var(--ok);
+}
+.tok-num {
+	color: color-mix(in oklab, var(--danger) 75%, var(--fg));
+}
+.tok-com {
+	color: var(--faint);
+	font-style: italic;
+}
+.tok-fn {
+	color: color-mix(in oklab, var(--accent) 60%, var(--fg));
+}
+.tok-punc {
+	color: var(--muted);
+}

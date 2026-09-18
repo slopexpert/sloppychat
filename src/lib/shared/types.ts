@@ -1,0 +1,283 @@
+/** Shared shapes used by both the server routes and the browser UI. */
+
+export type Role = 'system' | 'user' | 'assistant' | 'tool';
+
+export interface ImageRef {
+	/** Image row id, also the id used in the /api/images/<id> route. */
+	id: string;
+	mime: string;
+	name?: string;
+	width?: number;
+	height?: number;
+}
+
+export interface DocumentRef {
+	id: string;
+	name: string;
+	pages: number;
+	/** Characters of text extracted from the document. */
+	chars: number;
+}
+
+export interface ToolCall {
+	id: string;
+	name: string;
+	/** Parsed arguments. Raw JSON text while the stream is still arriving. */
+	args: unknown;
+	raw?: string;
+}
+
+export interface Usage {
+	prompt?: number;
+	completion?: number;
+	total?: number;
+	/** Milliseconds from request start to the first streamed token (prefill). */
+	ttftMs?: number;
+	/** Milliseconds spent streaming after the first token (generation). */
+	decodeMs?: number;
+	/** True when token counts were estimated from text length. */
+	estimated?: boolean;
+	/** Prefill tokens per second reported by the runtime itself. */
+	ppRate?: number;
+	/** Generation tokens per second reported by the runtime itself. */
+	tgRate?: number;
+	/** True when the timing above came from the server instead of this app. */
+	reported?: boolean;
+	/** Prompt tokens served from the prefix cache (llama.cpp cache_n). */
+	cachedPrompt?: number;
+	/** Time the request waited for a free slot, when the server reports it. */
+	queueMs?: number;
+	/** True when the answer stopped early, for example on stop or a crash. */
+	interrupted?: boolean;
+}
+
+/** Timing numbers a server reports about its own work. */
+export interface RuntimeTimings {
+	source: 'llamacpp' | 'vllm';
+	ppRate?: number;
+	tgRate?: number;
+	ttftMs?: number;
+	decodeMs?: number;
+	prompt?: number;
+	completion?: number;
+	cachedPrompt?: number;
+	queueMs?: number;
+}
+
+export interface Message {
+	id: string;
+	conversationId: string;
+	role: Role;
+	text: string;
+	/** Chain-of-thought text returned by reasoning models. */
+	reasoning?: string;
+	images: ImageRef[];
+	/** Attached documents whose text is inlined for the model. */
+	documents?: DocumentRef[];
+	toolCalls?: ToolCall[];
+	/** Set on role=tool messages: the call this message answers. */
+	toolCallId?: string;
+	toolName?: string;
+	isError?: boolean;
+	model?: string;
+	usage?: Usage;
+	createdAt: string;
+}
+
+export interface Conversation {
+	id: string;
+	title: string;
+	providerId: string | null;
+	model: string | null;
+	system: string | null;
+	/** Per conversation overrides of DEFAULT_PARAMS. */
+	params: Partial<GenerationParams>;
+	createdAt: string;
+	updatedAt: string;
+	messageCount?: number;
+}
+
+export interface Provider {
+	id: string;
+	name: string;
+	baseUrl: string;
+	/** Never sent to the browser; only hasKey is exposed. */
+	apiKey: string;
+	kind: 'openai';
+	defaultModel: string | null;
+	enabled: boolean;
+	sort: number;
+	createdAt: string;
+}
+
+export interface ProviderDTO extends Omit<Provider, 'apiKey'> {
+	hasKey: boolean;
+}
+
+export interface ModelInfo {
+	id: string;
+	name?: string;
+	contextLength?: number;
+	/** True when the upstream metadata says the model accepts images. */
+	vision?: boolean;
+}
+
+export interface UpstreamTool {
+	type: 'function';
+	function: { name: string; description: string; parameters: Record<string, unknown> };
+}
+
+export interface SearchResult {
+	title: string;
+	url: string;
+	snippet: string;
+	domain: string;
+	publishedDate?: string;
+}
+
+export interface SearchConfig {
+	url: string;
+	apiKey: string;
+	maxResults: number;
+}
+
+export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high';
+export type ToolChoice = 'auto' | 'none' | 'required';
+
+/**
+ * Everything that shapes a request. A null means "do not send this field",
+ * which matters because vendors reject unknown or empty sampling values.
+ */
+export interface GenerationParams {
+	system: string;
+	temperature: number | null;
+	topP: number | null;
+	topK: number | null;
+	minP: number | null;
+	maxTokens: number | null;
+	frequencyPenalty: number | null;
+	presencePenalty: number | null;
+	repetitionPenalty: number | null;
+	seed: number | null;
+	stop: string[];
+	reasoningEffort: ReasoningEffort;
+	toolChoice: ToolChoice;
+	/** Raw JSON object merged into the request body for vendor specific fields. */
+	extra: string;
+}
+
+export const DEFAULT_PARAMS: GenerationParams = {
+	system: 'You are a helpful assistant. Answer in the language the user writes in.',
+	temperature: null,
+	topP: null,
+	topK: null,
+	minP: null,
+	maxTokens: null,
+	frequencyPenalty: null,
+	presencePenalty: null,
+	repetitionPenalty: null,
+	seed: null,
+	stop: [],
+	reasoningEffort: 'auto',
+	toolChoice: 'auto',
+	extra: ''
+};
+
+export type FontChoice = 'system' | 'custom';
+export type TextSizeChoice = 'small' | 'default' | 'large';
+export type RadiusChoice = 'square' | 'small' | 'default' | 'large' | 'round';
+export type DensityChoice = 'compact' | 'default' | 'spacious';
+
+/** Everything the appearance tab controls. */
+export interface ThemeSettings {
+	/** Named palette, see src/lib/shared/themes.ts. The scheme follows the system. */
+	name: string;
+	font: FontChoice;
+	/** Used when font is custom; a name or a whole family list. */
+	fontFamily: string;
+	textSize: TextSizeChoice;
+	radius: RadiusChoice;
+	density: DensityChoice;
+}
+
+export const DEFAULT_THEME: ThemeSettings = {
+	name: 'sloppy',
+	font: 'system',
+	fontFamily: '',
+	textSize: 'default',
+	radius: 'default',
+	density: 'default'
+};
+
+export interface Settings {
+	theme: ThemeSettings;
+	search: SearchConfig;
+	generation: GenerationParams;
+	tools: {
+		webSearch: boolean;
+		webFetch: boolean;
+		maxRounds: number;
+		fetchMaxChars: number;
+		/** Lets web_fetch reach loopback and LAN addresses. Off by default. */
+		fetchAllowPrivate: boolean;
+		/** Render PDF pages to images for vision models. */
+		pdfImages: boolean;
+		/** Pages rendered per document. */
+		pdfMaxImages: number;
+		/** Characters of extracted PDF text sent to the model. */
+		pdfMaxChars: number;
+	};
+	defaults: { providerId: string | null; model: string | null };
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+	theme: { ...DEFAULT_THEME },
+	search: { url: '', apiKey: '', maxResults: 5 },
+	generation: { ...DEFAULT_PARAMS },
+	tools: {
+		webSearch: true,
+		webFetch: true,
+		maxRounds: 6,
+		fetchMaxChars: 20000,
+		fetchAllowPrivate: false,
+		pdfImages: true,
+		pdfMaxImages: 8,
+		pdfMaxChars: 12000
+	},
+	defaults: { providerId: null, model: null }
+};
+
+/** Stream events sent from the chat endpoint to the browser over SSE. */
+export type StreamEvent =
+	/** Sent first on every attach, so a late client can pick up a running turn. */
+	| {
+			type: 'snapshot';
+			messageId: string | null;
+			text: string;
+			reasoning: string;
+			toolCalls: ToolCall[];
+			running: boolean;
+	  }
+	/** No turn is running for this conversation. */
+	| { type: 'idle' }
+	| { type: 'start'; messageId: string }
+	| { type: 'text'; text: string }
+	| { type: 'reasoning'; text: string }
+	| { type: 'tool_call'; call: ToolCall }
+	| { type: 'done'; finishReason: string; usage?: Usage; messageId: string }
+	| { type: 'notice'; message: string }
+	| { type: 'error'; message: string };
+
+export interface ToolResult {
+	toolCallId: string;
+	content: string;
+	isError?: boolean;
+}
+
+export interface ChatRequest {
+	conversationId: string;
+	providerId?: string;
+	model?: string;
+	/** Stop the current turn and drop the partial assistant message. */
+	tools?: boolean;
+}

@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="utf-8" />
+		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<script>
+			// Applies every appearance choice before the first paint, so the stored
+			// look never flashes. Keep the defaults in step with DEFAULT_THEME.
+			(() => {
+				// Mirrors THEMES and resolveTheme() in src/lib/shared/themes.ts:
+				// [light variant, dark variant] per family, null when there is none.
+				// The scheme is the system preference, there is no setting for it.
+				const VARIANTS = {
+					sloppy: ['sloppy', 'sloppy'],
+					oled: [null, 'oled'],
+					'rose-pine': ['rose-pine-dawn', 'rose-pine'],
+					'rose-pine-moon': [null, 'rose-pine-moon'],
+					catppuccin: ['catppuccin-latte', 'catppuccin-mocha'],
+					'catppuccin-macchiato': [null, 'catppuccin-macchiato'],
+					'catppuccin-frappe': [null, 'catppuccin-frappe'],
+					'tokyo-night': [null, 'tokyo-night'],
+					'tokyo-night-storm': [null, 'tokyo-night-storm'],
+					gruvbox: ['gruvbox-light', 'gruvbox-dark'],
+					nord: [null, 'nord'],
+					vscode: ['vscode-light-modern', 'vscode-dark-modern']
+				};
+				const systemDark = matchMedia('(prefers-color-scheme: dark)').matches;
+				const root = document.documentElement;
+				try {
+					const stored = JSON.parse(localStorage.getItem('sloppychat:theme') ?? '{}');
+					const [lightVariant, darkVariant] = VARIANTS[stored.name] ?? VARIANTS.sloppy;
+					// The scheme always follows the system preference.
+					const want = systemDark ? 'dark' : 'light';
+					const variant =
+						(want === 'dark' ? darkVariant : lightVariant) ?? darkVariant ?? lightVariant ?? 'sloppy';
+					const single = lightVariant === darkVariant;
+					root.dataset.theme = variant;
+					root.dataset.mode = single
+						? want
+						: variant === lightVariant
+							? 'light'
+							: variant === darkVariant
+								? 'dark'
+								: want;
+					const custom = stored.font === 'custom';
+					root.dataset.font = custom ? 'custom' : 'system';
+					// Mirrors fontStack() in src/lib/shared/fonts.ts.
+					const typed = custom ? String(stored.fontFamily ?? '').trim() : '';
+					const family =
+						!typed || typed.includes(',') || typed.includes('"') || typed.includes("'")
+							? typed
+							: `"${typed}"`;
+					root.style.setProperty(
+						'--ui-font-custom',
+						family ? `${family}, var(--ui-font-system)` : 'var(--ui-font-system)'
+					);
+					root.dataset.text = stored.textSize ?? 'default';
+					root.dataset.radius = stored.radius ?? 'default';
+					root.dataset.density = stored.density ?? 'default';
+				} catch {
+					root.dataset.theme = 'sloppy';
+					root.dataset.mode = systemDark ? 'dark' : 'light';
+					root.dataset.font = 'system';
+					root.dataset.text = 'default';
+					root.dataset.radius = 'default';
+					root.dataset.density = 'default';
+				}
+			})();
+		</script>
+		<!--
+			Critical inline styles. They paint the right theme before the app
+			stylesheet arrives, which is what stops the white flash on load.
+			Keep the hex values in sync with the :root block in src/app.css.
+		-->
+		<style>
+			html {
+				background-color: #f7f7f5;
+				color: #1b1b19;
+				color-scheme: light;
+			}
+			html[data-mode='dark'] {
+				background-color: #101013;
+				color: #e8e8e6;
+				color-scheme: dark;
+			}
+			body {
+				margin: 0;
+				background-color: inherit;
+			}
+			#boot {
+				position: fixed;
+				inset: 0;
+				display: flex;
+				align-items: center;
+				justify-content: center;
+				font: 500 0.875rem/1.5 ui-sans-serif, system-ui, sans-serif;
+				letter-spacing: 0.02em;
+				color: #767669;
+			}
+			html[data-mode='dark'] #boot {
+				color: #8f8f9b;
+			}
+		</style>
+		%sveltekit.head%
+		<!-- TEMP: report which elements can scroll, the way Tridactyl searches. -->
+		<script>
+			setTimeout(() => {
+				const walker = document.createTreeWalker(document.documentElement, NodeFilter.SHOW_ELEMENT);
+				const found = [];
+				do {
+					const el = walker.currentNode;
+					const before = el.scrollTop;
+					el.scrollTop = before + 50;
+					if (el.scrollTop !== before) {
+						found.push(el);
+						el.scrollTop = before;
+					}
+				} while (walker.nextNode());
+				const describe = (el) => {
+					const name = el.tagName.toLowerCase();
+					const cls = (el.className || '').toString().split(' ').slice(0, 4).join('.');
+					const scroll = el.scrollHeight + '>' + el.clientHeight;
+					return `${name}.${cls} [${scroll}]`;
+				};
+				const lines = [
+					'active element: ' + describe(document.activeElement),
+					'first scrollable elements in document order:',
+					...found.slice(0, 6).map((el, index) => `${index + 1}. ${describe(el)}`)
+				];
+				const box = document.createElement('div');
+				box.id = 'scroll-report';
+				box.style.cssText =
+					'position:fixed;left:0;right:0;bottom:0;z-index:99;background:#000;color:#0f0;font:11px monospace;padding:6px;white-space:pre-wrap';
+				box.textContent = lines.join('\n');
+				document.body.append(box);
+			}, 1500);
+		</script>
+	</head>
+	<body data-sveltekit-preload-data="hover">
+		<!-- Replaced as soon as the app mounts, see src/routes/+layout.svelte. -->
+		<div id="boot" aria-hidden="true">sloppychat</div>
+		<div style="display: contents">%sveltekit.body%</div>
+	</body>
+</html>
