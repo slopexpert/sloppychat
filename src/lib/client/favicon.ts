@@ -7,6 +7,18 @@ import { faviconSvg } from '$lib/shared/mark';
  * for a browser that never runs this.
  */
 
+/**
+ * The colour the browser paints around the page, for example the status bar of
+ * an installed app. It comes from the same accent as the icon.
+ */
+export function applyThemeColor(): void {
+	if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') return;
+	const accent = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+	if (!accent) return;
+	const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+	if (meta && meta.content !== accent) meta.content = accent;
+}
+
 /** Last icon written, so repeated theme calls do not touch the DOM again. */
 let painted = '';
 

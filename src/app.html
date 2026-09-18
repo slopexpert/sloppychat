@@ -3,7 +3,13 @@
 	<head>
 		<meta charset="utf-8" />
 		<link rel="icon" href="%sveltekit.assets%/favicon.svg" />
+		<link rel="manifest" href="%sveltekit.assets%/manifest.webmanifest" />
+		<!-- The theme follows the accent at runtime, this is the first paint. -->
+		<meta name="theme-color" content="#0f766e" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<link rel="apple-touch-icon" href="%sveltekit.assets%/icon-192.png" />
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-title" content="sloppychat" />
 		<script>
 			// Applies every appearance choice before the first paint, so the stored
 			// look never flashes. Keep the defaults in step with DEFAULT_THEME.

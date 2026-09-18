@@ -29,7 +29,7 @@ import { resolveTheme } from '$lib/shared/themes';
 import { fontChoice, fontStack } from '$lib/shared/fonts';
 import { api, getStream, postStream } from './api';
 import { replaceState } from '$app/navigation';
-import { applyFavicon } from './favicon';
+import { applyFavicon, applyThemeColor } from './favicon';
 import type { ToolProgress } from './tools';
 import type { GenerationParams } from '$lib/shared/types';
 
@@ -1206,8 +1206,9 @@ export function applyTheme(theme: ThemeChoice): void {
 	root.dataset.text = chosen.textSize;
 	root.dataset.radius = chosen.radius;
 	root.dataset.density = chosen.density;
-	// The tab icon is drawn from the colours this just resolved.
+	// The tab icon and the browser colour come from the colours this just resolved.
 	applyFavicon();
+	applyThemeColor();
 	try {
 		localStorage.setItem(THEME_KEY, JSON.stringify(chosen));
 	} catch {
