@@ -3,6 +3,9 @@ import {
 	DEFAULT_SETTINGS,
 	DEFAULT_THEME,
 	type Conversation,
+	type McpServerConfig,
+	type McpServerState,
+	type McpToolInfo,
 	type DocumentRef,
 	type ImageRef,
 	type Message,
@@ -92,6 +95,9 @@ export class AppState {
 	toasts = $state<Toast[]>([]);
 	/** Messages typed while a turn was streaming, sent in order afterwards. */
 	queued = $state<QueuedMessage[]>([]);
+	/** The MCP servers with their state and their tools. */
+	mcpServers = $state<McpServerState[]>([]);
+	mcpLoading = $state(false);
 	/**
 	 * Exact prompt tokens for the open chat, from the provider's own tokenizer.
 	 * Null means the provider cannot count, so the view keeps its estimate.
@@ -161,6 +167,8 @@ export class AppState {
 			this.providers = providers.providers;
 			this.conversations = conversations.conversations;
 			void this.refreshSkills();
+			// The MCP servers are opened once the app has its settings.
+			void this.refreshMcp();
 			applyTheme(settings.theme);
 			// The address bar remembers the chat, so a reload opens the same one.
 			const wanted = this.#conversationFromUrl();
@@ -406,6 +414,58 @@ export class AppState {
 		// A trailing user or tool message means no answer was ever produced.
 		if (last.role === 'user' || last.role === 'tool') {
 			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
+		}
+	}
+
+	/** Every tool an MCP server offers, which the tools menu shows as well. */
+	get mcpTools(): McpToolInfo[] {
+		return this.mcpServers.flatMap((server) => (server.enabled ? server.tools : []));
+	}
+
+	/** Reads the MCP servers. A refresh also tries the servers that failed. */
+	async refreshMcp(refresh = false): Promise<void> {
+		this.mcpLoading = true;
+		try {
+			const { servers } = await api.listMcpServers(refresh);
+			this.mcpServers = servers;
+		} catch (err) {
+			this.toast('error', errorText(err));
+		} finally {
+			this.mcpLoading = false;
+		}
+	}
+
+	/** Adds one server, then reads the list again so its tools appear. */
+	async addMcpServer(name: string, config: McpServerConfig): Promise<void> {
+		await api.createMcpServer({ name, config });
+		await this.refreshMcp();
+	}
+
+	/** Imports a pasted Cursor config, which may hold several servers. */
+	async importMcpServers(json: string): Promise<number> {
+		const { servers } = await api.importMcpServers(json);
+		await this.refreshMcp();
+		return servers.length;
+	}
+
+	async setMcpEnabled(id: string, enabled: boolean): Promise<void> {
+		await api.updateMcpServer(id, { enabled });
+		await this.refreshMcp();
+	}
+
+	async removeMcpServer(id: string): Promise<void> {
+		await api.deleteMcpServer(id);
+		await this.refreshMcp();
+	}
+
+	/** Tries a server without saving it, and reports what it answered. */
+	async testMcpServer(name: string, config: McpServerConfig): Promise<string> {
+		try {
+			const { tools } = await api.testMcpServer({ name, config });
+			const names = tools.map((tool) => tool.name);
+			return names.length ? `${tools.length} tools: ${names.join(', ')}` : 'The server offers no tools';
+		} catch (err) {
+			return `Failed: ${errorText(err)}`;
 		}
 	}
 
@@ -880,10 +940,16 @@ export class AppState {
 		await this.saveSettings({ tools: this.settings.tools });
 	}
 
-	/** The mode of a tool, with the default of its catalog entry as the fallback. */
+	/**
+	 * The mode of a tool: the stored choice, the catalog default, or ask first
+	 * for a tool that arrived from an MCP server.
+	 */
 	toolMode(name: string): ToolMode {
+		const stored = this.settings.tools.modes[name];
+		if (stored) return stored;
 		const spec = TOOL_CATALOG.find((tool) => tool.name === name);
-		return this.settings.tools.modes[name] ?? spec?.defaultMode ?? 'off';
+		if (spec) return spec.defaultMode;
+		return this.mcpTools.some((tool) => tool.id === name) ? 'ask' : 'off';
 	}
 
 	/* --------------------------------------------------------------- providers */

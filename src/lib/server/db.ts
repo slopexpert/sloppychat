@@ -96,6 +96,15 @@ CREATE TABLE IF NOT EXISTS queued_messages (
 	created_at      TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS queued_conv ON queued_messages(conversation_id, seq);
+
+CREATE TABLE IF NOT EXISTS mcp_servers (
+	id         TEXT PRIMARY KEY,
+	name       TEXT NOT NULL,
+	enabled    INTEGER NOT NULL DEFAULT 1,
+	config     TEXT NOT NULL DEFAULT '{}',
+	created_at TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
 `;
 
 export interface DB {

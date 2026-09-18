@@ -27,6 +27,51 @@ export interface QueuedMessage {
 	documents: DocumentRef[];
 }
 
+/** One MCP server, as the user configured it. */
+export interface McpServerConfig {
+	/** stdio starts a process, http dials a Streamable HTTP endpoint. */
+	transport: 'stdio' | 'http';
+	/** stdio: the program, its arguments, its environment and its directory. */
+	command?: string;
+	args?: string[];
+	env?: Record<string, string>;
+	cwd?: string;
+	/** http: the endpoint and the headers it needs. */
+	url?: string;
+	headers?: Record<string, string>;
+	/** Milliseconds one request may take. */
+	timeoutMs?: number;
+}
+
+export interface McpServer {
+	id: string;
+	name: string;
+	enabled: boolean;
+	config: McpServerConfig;
+	createdAt: string;
+	updatedAt: string;
+}
+
+/** One tool of an MCP server, named the way the model sees it. */
+export interface McpToolInfo {
+	/** `<server>_<tool>`, the id used in the tools menu and in the request. */
+	id: string;
+	serverId: string;
+	serverName: string;
+	/** The name inside the server, which the call uses. */
+	name: string;
+	description: string;
+	/** The JSON schema of the arguments, as the server describes them. */
+	parameters: Record<string, unknown>;
+}
+
+/** What the settings window shows for one server. */
+export interface McpServerState extends McpServer {
+	status: 'ready' | 'failed' | 'stopped';
+	error?: string;
+	tools: McpToolInfo[];
+}
+
 export interface ToolCall {
 	id: string;
 	name: string;

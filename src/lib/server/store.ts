@@ -1,5 +1,5 @@
 import { all, newId, now, one, run, tx } from './db';
-import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type Conversation, type Message, type Provider, type QueuedMessage, type Settings } from '$lib/shared/types';
+import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type Conversation, type McpServer, type McpServerConfig, type Message, type Provider, type QueuedMessage, type Settings } from '$lib/shared/types';
 import { migrateToolModes } from '$lib/shared/tools';
 import type { Skill } from '$lib/shared/skills';
 
@@ -350,6 +350,64 @@ export function clearQueued(conversationId: string): number {
 	const count = listQueued(conversationId).length;
 	run('DELETE FROM queued_messages WHERE conversation_id = ?', conversationId);
 	return count;
+}
+
+/* ---------------------------------------------------------------- mcp ----- */
+
+function mapMcpServer(row: Row): McpServer {
+	return {
+		id: str(row.id),
+		name: str(row.name, 'server'),
+		enabled: row.enabled === 1,
+		config: json<McpServerConfig>(row.config, { transport: 'stdio' }),
+		createdAt: str(row.created_at),
+		updatedAt: str(row.updated_at)
+	};
+}
+
+export function listMcpServers(): McpServer[] {
+	return all('SELECT * FROM mcp_servers ORDER BY name COLLATE NOCASE').map(mapMcpServer);
+}
+
+export function getMcpServer(id: string): McpServer | undefined {
+	const row = one('SELECT * FROM mcp_servers WHERE id = ?', id);
+	return row ? mapMcpServer(row) : undefined;
+}
+
+export function createMcpServer(input: { name: string; config: McpServerConfig; enabled?: boolean }): McpServer {
+	const id = newId();
+	const stamp = now();
+	run(
+		'INSERT INTO mcp_servers (id, name, enabled, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+		id,
+		input.name,
+		input.enabled === false ? 0 : 1,
+		JSON.stringify(input.config),
+		stamp,
+		stamp
+	);
+	return getMcpServer(id)!;
+}
+
+export function updateMcpServer(
+	id: string,
+	patch: { name?: string; enabled?: boolean; config?: McpServerConfig }
+): McpServer | undefined {
+	const current = getMcpServer(id);
+	if (!current) return undefined;
+	run(
+		'UPDATE mcp_servers SET name = ?, enabled = ?, config = ?, updated_at = ? WHERE id = ?',
+		patch.name ?? current.name,
+		(patch.enabled ?? current.enabled) ? 1 : 0,
+		JSON.stringify(patch.config ?? current.config),
+		now(),
+		id
+	);
+	return getMcpServer(id);
+}
+
+export function deleteMcpServer(id: string): void {
+	run('DELETE FROM mcp_servers WHERE id = ?', id);
 }
 
 /* --------------------------------------------------------------------- skills */

@@ -6,9 +6,9 @@
 
 	/**
 	 * One row per tool: the tool id and a three way switch. The left position is
-	 * off, the middle asks first, and the right is on. This list is the only place
-	 * where a tool is switched, and the top bar menu and Settings share it. A tool
-	 * with the position off sends no schema to the model, so it costs nothing.
+	 * off, the middle asks first, and the right is on. The top bar menu and
+	 * Settings show this list. The tools of the MCP servers come last, and a tool
+	 * whose mode was never set asks first.
 	 */
 
 	const MODES: { id: ToolMode; icon: 'x' | 'help' | 'check'; label: string }[] = [
@@ -16,6 +16,15 @@
 		{ id: 'ask', icon: 'help', label: 'Ask first' },
 		{ id: 'on', icon: 'check', label: 'On' }
 	];
+
+	/** The builtin tools, then whatever the MCP servers offer. */
+	const rows = $derived([
+		...TOOL_CATALOG.map((spec) => ({ name: spec.name, title: spec.description })),
+		...app.mcpTools.map((tool) => ({
+			name: tool.id,
+			title: tool.description || `${tool.serverName} / ${tool.name}`
+		}))
+	]);
 
 	/** Arrow keys move the switch, the way a radio group does. */
 	function onKeydown(event: KeyboardEvent, name: string) {
@@ -31,18 +40,18 @@
 </script>
 
 <ul class="space-y-2">
-	{#each TOOL_CATALOG as spec (spec.name)}
-		<li class="flex items-center gap-3" title={spec.description}>
-			<span class="min-w-0 flex-1 truncate-clip font-mono text-xs text-fg">{spec.name}</span>
+	{#each rows as row (row.name)}
+		<li class="flex items-center gap-3" title={row.title}>
+			<span class="min-w-0 flex-1 truncate-clip font-mono text-xs text-fg">{row.name}</span>
 			<div
 				class="inline-flex shrink-0 items-center gap-0.5 rounded-lg border border-line bg-raised p-0.5"
 				role="radiogroup"
 				tabindex="-1"
-				aria-label="{spec.name} mode"
-				onkeydown={(event) => onKeydown(event, spec.name)}
+				aria-label="{row.name} mode"
+				onkeydown={(event) => onKeydown(event, row.name)}
 			>
 				{#each MODES as mode (mode.id)}
-					{@const active = app.toolMode(spec.name) === mode.id}
+					{@const active = app.toolMode(row.name) === mode.id}
 					<button
 						type="button"
 						role="radio"
@@ -53,7 +62,7 @@
 						class="flex size-6 items-center justify-center rounded-md transition-colors {active
 							? 'bg-accent text-accent-fg'
 							: 'text-faint hover:bg-surface hover:text-fg'}"
-						onclick={() => app.setToolMode(spec.name, mode.id)}
+						onclick={() => app.setToolMode(row.name, mode.id)}
 					>
 						<Icon name={mode.icon} size={13} stroke={2.4} />
 					</button>

@@ -1,13 +1,14 @@
 import { appendMessage, defaultProvider, enabledSkills, finalizeMessage, getConversation, getProvider, getSettings, listMessages, touchConversation } from './store';
 import { streamChat, toUpstreamMessages, type ChatPayload } from './openai';
-import { toolNamesFor, upstreamTools } from '$lib/shared/tools';
+import { advertisedTools, upstreamToolsFrom } from '$lib/shared/tools';
 import { skillsSection } from '$lib/shared/skills';
 import { parseExtra, PROTECTED_BODY_KEYS, resolveParams } from '$lib/shared/params';
-import type { Message, Provider, RuntimeTimings, ToolCall, Usage } from '$lib/shared/types';
+import type { Message, Provider, RuntimeTimings, ToolCall, ToolMode, Usage } from '$lib/shared/types';
 import type { SseWriter } from './sse';
 import { modeOf, runTool } from './tools';
 import { waitForApproval } from './approvals';
 import { tokenSupport, countPrompt, type TokenSupport } from './tokens';
+import { mcpTools } from './mcp/registry';
 
 /**
  * Drives one assistant turn: build the upstream payload, stream it into the
@@ -45,7 +46,7 @@ function resolveTarget(req: TurnRequest): { provider: Provider; model: string } 
  * Builds the request body from the merged parameter layers and the stored
  * history. The `extra` JSON field is merged last so provider specific knobs win.
  */
-function generationOptions(model: string, conversationId: string, support?: TokenSupport): ChatPayload {
+async function generationOptions(model: string, conversationId: string, support?: TokenSupport): Promise<ChatPayload> {
 	const settings = getSettings();
 	const conversation = getConversation(conversationId);
 	const params = resolveParams(
@@ -69,12 +70,20 @@ function generationOptions(model: string, conversationId: string, support?: Toke
 
 	// Skills are advertised by name and description; the text is loaded on demand.
 	const skills = skillsSection(enabledSkills());
-	const names = toolNamesFor({
+	const names = advertisedTools({
 		modes: settings.tools.modes,
-		skills: skills.length > 0
+		skills: skills.length > 0,
+		// Tools from MCP servers are advertised like the builtins, and a new one
+		// asks first until the user decides otherwise.
+		extra: (await mcpTools()).map((tool) => ({
+			name: tool.id,
+			description: tool.description || `A tool from the MCP server ${tool.serverName}.`,
+			parameters: tool.parameters,
+			defaultMode: 'ask' as ToolMode
+		}))
 	});
 	if (names.length) {
-		payload.tools = upstreamTools(names);
+		payload.tools = upstreamToolsFrom(names);
 		payload.tool_choice = params.toolChoice;
 	}
 
@@ -289,7 +298,7 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 	// Close anything a lost turn left open before the history goes upstream.
 	closeDanglingToolCalls(req.conversationId);
 
-	let payload = generationOptions(model, req.conversationId, support);
+	let payload = await generationOptions(model, req.conversationId, support);
 	if (!payload.messages.length) throw new TurnError('Nothing to send: the conversation is empty');
 
 	for (let round = 0; ; round++) {
@@ -331,7 +340,7 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 			// Read the settings again for each call, so a change during the turn
 			// takes effect at once. Always allow writes the mode while a tool waits.
 			const settings = getSettings();
-			const mode = modeOf(call.name, settings);
+			const mode = await modeOf(call.name, settings);
 			if (mode === 'off') {
 				writeToolRow(req.conversationId, call, 'Error: the user turned this tool off.', true);
 				w.send({ type: 'tool_result', toolCallId: call.id, isError: true, detail: 'turned off' });
@@ -367,7 +376,7 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 		}
 
 		// The results are in the history now, so the model answers them.
-		payload = generationOptions(model, req.conversationId, support);
+		payload = await generationOptions(model, req.conversationId, support);
 	}
 }
 
@@ -381,7 +390,7 @@ export async function promptTokenCount(conversationId: string): Promise<number |
 		const { provider, model } = resolveTarget({ conversationId });
 		const support = await tokenSupport(provider);
 		if (support.counter === 'none') return undefined;
-		return await countPrompt(provider, generationOptions(model, conversationId, support).messages);
+		return await countPrompt(provider, (await generationOptions(model, conversationId, support)).messages);
 	} catch {
 		// No provider, no model, or no tokenizer: the caller keeps its estimate.
 		return undefined;

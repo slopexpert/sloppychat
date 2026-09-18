@@ -1,15 +1,16 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it } from 'vitest';
 import { isApproveKey } from '$lib/client/tools';
 import {
 	TOOL_CATALOG,
 	activeTools,
+	advertisedTools,
 	migrateToolModes,
+	modeFor,
 	toolMode,
-	toolNamesFor,
-	upstreamTools
+	upstreamToolsFrom
 } from '$lib/shared/tools';
 
 /**
@@ -28,16 +29,33 @@ describe('tool modes', () => {
 	});
 
 	it('offers every tool that is not off, and keeps the skill tool gated', () => {
-		expect(toolNamesFor({ modes: {}, skills: true })).toEqual(['web_search', 'read_skill', 'web_fetch']);
-		expect(toolNamesFor({ modes: { web_search: 'off' }, skills: true })).toEqual(['read_skill', 'web_fetch']);
-		expect(toolNamesFor({ modes: { web_fetch: 'ask' }, skills: true })).toContain('web_fetch');
-		expect(toolNamesFor({ modes: {}, skills: false })).not.toContain('read_skill');
+		const names = (input: Parameters<typeof advertisedTools>[0]) => advertisedTools(input).map((tool) => tool.name);
+		expect(names({ modes: {}, skills: true })).toEqual(['web_search', 'read_skill', 'web_fetch']);
+		expect(names({ modes: { web_search: 'off' }, skills: true })).toEqual(['read_skill', 'web_fetch']);
+		expect(names({ modes: { web_fetch: 'ask' }, skills: true })).toContain('web_fetch');
+		expect(names({ modes: {}, skills: false })).not.toContain('read_skill');
 	});
 
 	it('sends no schema for a tool that is off', () => {
-		const offered = upstreamTools(toolNamesFor({ modes: { web_fetch: 'off' }, skills: true }));
+		const offered = upstreamToolsFrom(advertisedTools({ modes: { web_fetch: 'off' }, skills: true }));
 		expect(offered.map((tool) => tool.function.name)).toEqual(['web_search', 'read_skill']);
 		expect(JSON.stringify(offered)).not.toContain('web_fetch');
+	});
+
+	it('takes a tool that arrived later, and asks first for it', () => {
+		const extra = [
+			{ name: 'files_read', description: 'Read one file.', parameters: { type: 'object' }, defaultMode: 'ask' as const }
+		];
+		expect(advertisedTools({ modes: {}, skills: false, extra }).map((tool) => tool.name)).toEqual([
+			'web_search',
+			'web_fetch',
+			'files_read'
+		]);
+		expect(modeFor('files_read', {}, extra)).toBe('ask');
+		expect(modeFor('files_read', { files_read: 'on' }, extra)).toBe('on');
+		expect(modeFor('files_read', { files_read: 'off' }, extra)).toBe('off');
+		// A name nobody registered stays out.
+		expect(modeFor('nobody', {}, extra)).toBe('off');
 	});
 
 	it('counts the active tools for the menu badge', () => {
@@ -94,6 +112,7 @@ describe('the stored settings', () => {
 
 /** The tools run on the server now, so the module is tested on its own. */
 const serverTools = await import('$lib/server/tools');
+const mcpRegistry = await import('$lib/server/mcp/registry');
 
 describe('running a tool on the server', () => {
 	it('reads a skill out of the store', async () => {
@@ -117,18 +136,18 @@ describe('running a tool on the server', () => {
 		expect(run.content).toContain('Unknown tool');
 	});
 
-	it('reports the mode of a tool, and off for a name outside the catalog', () => {
+	it('reports the mode of a tool, and off for a name outside the catalog', async () => {
 		// Build the settings here, so the stored rows of the tests above do not matter.
 		const base = store.getSettings();
 		const settings = { ...base, tools: { ...base.tools, modes: {} } };
-		expect(serverTools.modeOf('web_search', settings)).toBe('on');
+		expect(await serverTools.modeOf('web_search', settings)).toBe('on');
 		expect(
-			serverTools.modeOf('web_search', {
+			await serverTools.modeOf('web_search', {
 				...settings,
 				tools: { ...settings.tools, modes: { web_search: 'off' } }
 			})
 		).toBe('off');
-		expect(serverTools.modeOf('nope', settings)).toBe('off');
+		expect(await serverTools.modeOf('nope', settings)).toBe('off');
 	});
 });
 
@@ -159,5 +178,64 @@ describe('the allow once key', () => {
 		expect(isApproveKey({ key: 'Enter', target: { tagName: 'TEXTAREA', value: '' } })).toBe(true);
 		expect(isApproveKey({ key: 'Enter', target: { tagName: 'TEXTAREA', value: '   ' } })).toBe(true);
 		expect(isApproveKey({ key: 'Enter', target: { tagName: 'INPUT', value: '' } })).toBe(true);
+	});
+});
+
+/** An MCP server from the test fixture, so a real call goes through the registry. */
+async function connectFixtureServer(): Promise<string> {
+	const server = store.createMcpServer({
+		name: 'echo',
+		config: {
+			transport: 'stdio',
+			command: process.execPath,
+			args: ['test/fixtures/mcp-echo.mjs'],
+			timeoutMs: 5000
+		}
+	});
+	// The first call opens the connection and lists the tools, so a name is known.
+	await mcpRegistry.mcpTools();
+	return server.id;
+}
+
+afterAll(() => {
+	// The fixture is a child process, so the test must close it.
+	mcpRegistry.closeMcpServers();
+});
+
+describe('a tool from an MCP server', () => {
+	it('runs it and turns the answer into text', async () => {
+		await connectFixtureServer();
+		const run = await serverTools.runTool(
+			{ id: 'c1', name: 'echo_echo', args: { text: 'hello there' } },
+			store.getSettings()
+		);
+		expect(run.isError).toBe(false);
+		expect(run.content).toBe('echo: hello there');
+		expect(run.detail).toContain('echo');
+	});
+
+	it('stores an image block and names it for the model', async () => {
+		await connectFixtureServer();
+		const run = await serverTools.runTool(
+			{ id: 'c2', name: 'echo_picture', args: {} },
+			store.getSettings()
+		);
+		const images = (run.data as { images?: { id: string; mime: string }[] } | undefined)?.images ?? [];
+		expect(images).toHaveLength(1);
+		expect(images[0].mime).toBe('image/png');
+		expect(run.content).toContain('a picture');
+		expect(store.getImage(images[0].id)?.mime).toBe('image/png');
+	});
+
+	it('asks first for a tool that has no choice yet', async () => {
+		await connectFixtureServer();
+		expect(await serverTools.modeOf('echo_echo', store.getSettings())).toBe('ask');
+	});
+
+	it('reports a server that stops as an error result', async () => {
+		await connectFixtureServer();
+		const run = await serverTools.runTool({ id: 'c3', name: 'echo_crash', args: {} }, store.getSettings());
+		expect(run.isError).toBe(true);
+		expect(run.content).toMatch(/stopped|closed|failed/i);
 	});
 });

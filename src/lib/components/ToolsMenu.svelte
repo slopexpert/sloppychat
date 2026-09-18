@@ -14,7 +14,8 @@
 	let trigger: HTMLButtonElement | undefined = $state();
 
 	const active = $derived(
-		TOOL_CATALOG.filter((spec) => toolMode(spec, app.settings.tools.modes) !== 'off').length
+		TOOL_CATALOG.filter((spec) => toolMode(spec, app.settings.tools.modes) !== 'off').length +
+			app.mcpTools.filter((tool) => app.toolMode(tool.id) !== 'off').length
 	);
 
 	/** Escape closes the menu and hands the focus back to the button. */
@@ -49,7 +50,11 @@
 	</button>
 
 	{#if open}
-		<div class="card absolute top-full right-0 z-30 mt-1.5 w-72 p-3 shadow-2xl" role="dialog" aria-label="Tools">
+		<div
+			class="card absolute top-full right-0 z-30 mt-1.5 max-h-[60vh] w-72 overflow-y-auto p-3 shadow-2xl"
+			role="dialog"
+			aria-label="Tools"
+		>
 			<ToolList />
 		</div>
 	{/if}

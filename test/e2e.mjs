@@ -177,6 +177,10 @@ const mock = createServer((req, res) => {
 			const wantsTwo = body.messages.some(
 				(message) => typeof message.content === 'string' && message.content.includes('two tools')
 			);
+			// A prompt that names the MCP tool makes the mock call that tool.
+			const wantsMcp = body.messages.some(
+				(message) => typeof message.content === 'string' && message.content.includes('mcp tool')
+			);
 			// A turn that carries page images is the PDF path, answer it directly.
 			const hasImage = body.messages.some(
 				(message) =>
@@ -193,6 +197,8 @@ const mock = createServer((req, res) => {
 			}
 			if (!hasToolResult || (wantsTwo && toolCount === 1)) {
 				const callId = toolCount === 0 ? 'call_1' : 'call_2';
+				const toolName = wantsMcp ? 'echo_echo' : 'web_fetch';
+				const toolArgs = wantsMcp ? '{"text":"from the model"}' : `{"url":"${MOCK}/page"}`;
 				// Ask for a tool call, split across deltas to test accumulation.
 				sse(res, [
 					{ choices: [{ index: 0, delta: { role: 'assistant' }, finish_reason: null }] },
@@ -202,7 +208,7 @@ const mock = createServer((req, res) => {
 								index: 0,
 								delta: {
 									tool_calls: [
-										{ index: 0, id: callId, type: 'function', function: { name: 'web_fetch' } }
+										{ index: 0, id: callId, type: 'function', function: { name: toolName } }
 									]
 								},
 								finish_reason: null
@@ -214,7 +220,7 @@ const mock = createServer((req, res) => {
 							{
 								index: 0,
 								delta: {
-									tool_calls: [{ index: 0, function: { arguments: `{"url":"${MOCK}/page"}` } }]
+									tool_calls: [{ index: 0, function: { arguments: toolArgs } }]
 								},
 								finish_reason: null
 							}
@@ -757,6 +763,112 @@ try {
 			tools: { ...askSaved.body.tools, modes: { web_search: 'on', web_fetch: 'on' } }
 		})
 	});
+
+	// MCP: a server from the fixture, its tools, and one call through a turn.
+	const imported = await json(`${APP}/api/mcp`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			json: JSON.stringify({
+				mcpServers: { echo: { command: process.execPath, args: ['test/fixtures/mcp-echo.mjs'] } }
+			})
+		})
+	});
+	check(
+		'an MCP server is added from a Cursor config',
+		imported.status === 201 && imported.body.servers?.length === 1,
+		JSON.stringify(imported.body).slice(0, 200)
+	);
+	const mcpListed = await json(`${APP}/api/mcp`);
+	const echoServer = (mcpListed.body.servers ?? [])[0];
+	check(
+		'the MCP server connects and lists its tools',
+		echoServer?.status === 'ready' && echoServer.tools.length === 5,
+		JSON.stringify(
+			echoServer && { status: echoServer.status, error: echoServer.error, tools: echoServer.tools.map((tool) => tool.id) }
+		)
+	);
+	const echoTool = (echoServer?.tools ?? []).find((tool) => tool.name === 'echo');
+	check('the tool id names the server and the tool', echoTool?.id === 'echo_echo', JSON.stringify(echoTool?.id));
+	check(
+		'the argument schema comes from the server',
+		echoTool?.parameters?.properties?.text?.type === 'string',
+		JSON.stringify(echoTool?.parameters)
+	);
+
+	// The tool reaches the model, and it asks first until the user decides.
+	const mcpChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const mcpId = mcpChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${mcpId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'Read the page with the mcp tool please' })
+	});
+	const mcpAsked = [];
+	await readUntil(
+		`${APP}/api/chat`,
+		{ conversationId: mcpId },
+		(events) => events.some((event) => event.type === 'tool_ask'),
+		mcpAsked
+	);
+	check(
+		'a new MCP tool asks first',
+		mcpAsked.some((event) => event.type === 'tool_ask' && event.call.name === 'echo_echo'),
+		JSON.stringify(mcpAsked.map((event) => event.type))
+	);
+	check(
+		'the MCP tool is advertised to the model',
+		(upstream.lastBody?.tools ?? []).some((tool) => tool.function.name === 'echo_echo'),
+		JSON.stringify((upstream.lastBody?.tools ?? []).map((tool) => tool.function.name))
+	);
+
+	const mcpRest = [];
+	const mcpWatch = readUntil(
+		`${APP}/api/chat/stream?conversationId=${mcpId}`,
+		undefined,
+		(events) => events.some((event) => event.type === 'done'),
+		mcpRest
+	);
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	const approvedMcp = await json(`${APP}/api/chat/approve`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ conversationId: mcpId, toolCallId: 'call_1', decision: 'allow', always: true })
+	});
+	check('the MCP tool request is approved', approvedMcp.body.answered === true, JSON.stringify(approvedMcp.body));
+	await mcpWatch;
+	const mcpHistory = await json(`${APP}/api/conversations/${mcpId}`);
+	const mcpRow = (mcpHistory.body.messages ?? []).find(
+		(message) => message.role === 'tool' && message.toolName === 'echo_echo'
+	);
+	check('the MCP tool result is stored for the model', mcpRow?.text === 'echo: from the model', JSON.stringify(mcpRow?.text));
+	check(
+		'the model answers after the MCP tool',
+		mcpHistory.body.messages.at(-1)?.text === 'MOCK ANSWER',
+		JSON.stringify(mcpHistory.body.messages.at(-1)?.text)
+	);
+
+	// A config can be tried before it is saved.
+	const tested = await json(`${APP}/api/mcp/test`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			name: 'echo',
+			config: { transport: 'stdio', command: process.execPath, args: ['test/fixtures/mcp-echo.mjs'] }
+		})
+	});
+	check(
+		'a config can be tested before it is saved',
+		tested.status === 200 && tested.body.tools?.length === 5,
+		JSON.stringify(tested.body).slice(0, 160)
+	);
+
+	// Remove it again, so the checks below see the same world as before.
+	await json(`${APP}/api/mcp/${echoServer.id}`, { method: 'DELETE' });
 
 	// A tool that is off sends no schema at all, so a disabled tool costs no tokens.
 	const offSaved = await json(`${APP}/api/settings`, {

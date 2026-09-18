@@ -8,7 +8,6 @@ In scope:
 - Execution of the tools on the server, with an approval step for the mode ask first.
 - A queue on the server for the follow-up messages, which survives a reload.
 - Exact token counts for llama.cpp and vLLM.
-- Memory, with the same three modes.
 - An MCP client in the app, so the model gets the tools of an MCP server.
 - Branches for the messages, a Continue action, and a comparison of two models.
 - Search across the chats, folders, tags, and pins.
@@ -22,12 +21,13 @@ Out of scope. You said no to the features below:
 - The generation of images.
 - Notifications.
 - Retrieval with embeddings.
+- Memory.
 - A separate approval switch for one chat, because the menu holds the same mode.
 - Code execution.
 - Access control.
 
 Two notes about the scope:
-- The menu for the tools stays, because your answer about memory asks for the menu and the MCP tools of step 7 need a switch. The passthrough of the tools that llama.cpp owns is out, so the app ignores the tool list of the backend.
+- The menu for the tools stays, because your answer about the approval of a tool asks for the menu and the MCP tools of step 6 need a switch. The passthrough of the tools that llama.cpp owns is out, so the app ignores the tool list of the backend.
 - The menu holds the mode ask first. That mode does the same work as the per-chat approval.
 
 ## Step 1. Add the tests that show the two defects
@@ -60,38 +60,32 @@ Work: Add `src/lib/server/tokens.ts`. For llama.cpp, `POST /tokenize` gives the 
 Files: `src/lib/server/tokens.ts` (new), `src/lib/server/openai.ts`, `src/lib/server/bridge.ts`, `src/lib/shared/stats.ts`, `src/lib/components/ContextGauge.svelte`.
 Test: A unit test for each backend shape with a mock server. A test that shows the mark `~` on an estimate.
 
-## Step 6. Add memory
-Goal: the model remembers facts across the chats.
-Work: Add a table for the memories. Add the tools `remember` and `forget`, with the mode from the menu. Add a system section with a fixed limit on the characters. The settings window gets a tab for the memories, where you can change or delete an entry.
-Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/lib/shared/tools.ts`, `src/lib/server/tools.ts`, `src/lib/server/bridge.ts`, `src/lib/components/SettingsModal.svelte`, `src/routes/api/memories/+server.ts` (new).
-Test: The system section stays out of the prompt when memory is off. The section stops at the limit. The mode ask first shows the card before a write.
-
-## Step 7. Add the MCP client
+## Step 6. Add the MCP client
 Goal: the app connects to MCP servers and gives their tools to the model.
 Work: Store the server list in the Cursor format (`mcpServers` with `command`, `args`, `env`, `cwd`, `timeout_ms`, or `url` and `headers`). Add a client that speaks JSON-RPC over stdio and over Streamable HTTP. At start, the server opens each enabled server, calls `initialize`, and calls `tools/list`. The tools appear in the menu as `<server>_<tool>`, with the mode ask first as the default. The executor of step 3 sends a call to the correct server with `tools/call` and turns the content blocks into text. An image block goes to the images table and becomes an attachment. A server that stops restarts at the next call. The settings window gets a tab with the server list, the tool count, the state, and a test button.
 Files: `src/lib/server/mcp/client.ts` (new), `src/lib/server/mcp/stdio.ts` (new), `src/lib/server/mcp/http.ts` (new), `src/lib/server/mcp/config.ts` (new), `src/lib/server/tools.ts`, `src/lib/shared/tools.ts`, `src/lib/components/SettingsModal.svelte`, `src/routes/api/mcp/+server.ts` (new).
 Test: A small MCP server for the tests gives an echo tool and an add tool. Tests cover the tool list, a call, a timeout, a crash, a bad answer, and an image result.
 Risk: A server that writes text to stdout can break the protocol. The reader ignores the lines without JSON.
 
-## Step 8. Add branches, Continue, and comparison
+## Step 7. Add branches, Continue, and comparison
 Goal: an answer keeps the old answer, and two models can answer the same question.
 Work: Add `parent_id` to the messages and an active leaf to each conversation. A migration fills `parent_id` from the current sequence, so the old chats stay in the same order. The actions Retry and Edit make a brother message in place of the removal of the tail. Each message gets a small control `1/3` for the brothers. The action Continue appears when the answer stops at the length limit. Both backends support the prefill of an assistant message for the Continue action. The comparison view sends the same prompt to a second model in a parallel chat and shows the two answers side by side.
 Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/lib/server/bridge.ts`, `src/routes/api/conversations/[id]/+server.ts`, `src/lib/components/MessageItem.svelte`, `src/lib/components/CompareView.svelte` (new), `src/lib/client/state.svelte.ts`.
 Test: A migration test on a database with one chat. A test for the brothers. A test for Continue after the length limit. An e2e test for the comparison.
 
-## Step 9. Add search, folders, tags, and pins
+## Step 8. Add search, folders, tags, and pins
 Goal: find an old chat fast, and put the chats in groups.
 Work: Add an FTS5 table for the message text and the chat titles, with triggers that keep the table in step. Add a search box in the sidebar and the shortcut `Ctrl+K`. A hit opens the chat at the correct message. Add folders, tags, and pins. Drag a chat onto a folder to move the chat into the folder. Drag a chat onto another chat to make a folder with the two chats. Drag a chat out of a folder to keep the chat in the list of chats. A pinned chat stays at the top of the list. Each drag action has a keyboard equivalent, because a drag alone is not accessible.
 Files: `src/lib/server/db.ts`, `src/lib/server/store.ts`, `src/routes/api/conversations/+server.ts`, `src/routes/api/search/chats/+server.ts` (new), `src/lib/components/Sidebar.svelte`, `src/lib/components/ChatSearch.svelte` (new).
 Test: A test for the triggers of the FTS table. A test for the move to a folder. Component tests for the drag handlers. An accessibility test for the keyboard path.
 
-## Step 10. Add the installable app
+## Step 9. Add the installable app
 Goal: the app runs from the home screen of a telephone.
 Work: Add a manifest with the pig icons (192 and 512 pixels, and one maskable icon). Set `theme-color` from the accent color, as the tab icon does. Add a service worker that caches the shell only, so the event stream and the turns keep the normal behavior. Add an offline page and a message when a new version is ready.
 Files: `static/manifest.webmanifest` (new), `static/sw.js` (new), `static/icon-192.png`, `static/icon-512.png`, `src/app.html`, `src/routes/+layout.svelte`.
 Test: A test for the manifest. A test that the list of cached routes holds the shell paths only. A manual check on a telephone and on the desktop.
 
-## Step 11. Update the documents and close the work
+## Step 10. Update the documents and close the work
 Goal: the documents agree with the code.
 Work: Update the feature list in `README.md` and `specs/overview.md`. Make one commit for each step. Run the full suite, the e2e tests, and a check in the browser with pictures in the light mode, the dark mode, and the narrow layout.
 Files: `README.md`, `specs/overview.md`.
@@ -105,4 +99,4 @@ Test: `svelte-check` reports no error, all unit tests pass, and all e2e checks p
 
 ## Decisions I need from you
 1. Is the tools menu global and persisted? That choice removes the web tools switch of the single chat.
-2. Step 8 comes before step 9, because the search and the folders of step 9 use the message tree. Do you agree with the order above?
+2. Step 7 comes before step 8, because the search and the folders of step 8 use the message tree. Do you agree with the order above?

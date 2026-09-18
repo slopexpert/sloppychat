@@ -4,6 +4,9 @@ import type {
 	DocumentRef,
 	GenerationParams,
 	ImageRef,
+	McpServer,
+	McpServerConfig,
+	McpServerState,
 	Message,
 	ModelInfo,
 	ProviderDTO,
@@ -70,6 +73,22 @@ export const api = {
 			body: JSON.stringify(patch)
 		}),
 	deleteConversation: (id: string) => request<{ ok: true }>(`/api/conversations/${id}`, { method: 'DELETE' }),
+
+	/** MCP servers, their state and their tools. */
+	listMcpServers: (refresh = false) =>
+		request<{ servers: McpServerState[] }>(`/api/mcp${refresh ? '?refresh=1' : ''}`),
+	createMcpServer: (input: { name: string; config: McpServerConfig }) =>
+		request<{ server: McpServer }>('/api/mcp', { method: 'POST', body: JSON.stringify(input) }),
+	importMcpServers: (json: string) =>
+		request<{ servers: McpServer[] }>('/api/mcp', { method: 'POST', body: JSON.stringify({ json }) }),
+	updateMcpServer: (id: string, patch: { name?: string; enabled?: boolean; config?: McpServerConfig }) =>
+		request<{ server: McpServer }>(`/api/mcp/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+	deleteMcpServer: (id: string) => request<{ ok: true }>(`/api/mcp/${id}`, { method: 'DELETE' }),
+	testMcpServer: (input: { name: string; config: McpServerConfig }) =>
+		request<{ tools: { name: string; description?: string }[] }>('/api/mcp/test', {
+			method: 'POST',
+			body: JSON.stringify(input)
+		}),
 
 	/** The exact prompt count for a conversation, when the provider counts tokens. */
 	countTokens: (conversationId: string) =>
