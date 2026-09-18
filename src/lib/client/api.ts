@@ -71,6 +71,13 @@ export const api = {
 		}),
 	deleteConversation: (id: string) => request<{ ok: true }>(`/api/conversations/${id}`, { method: 'DELETE' }),
 
+	/** The exact prompt count for a conversation, when the provider counts tokens. */
+	countTokens: (conversationId: string) =>
+		request<{ prompt: number | null; exact: boolean }>('/api/tokens', {
+			method: 'POST',
+			body: JSON.stringify({ conversationId })
+		}),
+
 	addMessage: (conversationId: string, input: { text: string; images?: ImageRef[]; documents?: DocumentRef[] }) =>
 		request<{ message: Message }>(`/api/conversations/${conversationId}/messages`, {
 			method: 'POST',

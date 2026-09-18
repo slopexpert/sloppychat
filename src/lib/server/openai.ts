@@ -52,6 +52,10 @@ export interface UpstreamChunk {
 	usage?: Usage;
 	/** Timing the server reported about its own work, when it sends any. */
 	timings?: RuntimeTimings;
+	/** Prompt tokens the server counted itself, when it reports them. */
+	promptTokens?: number;
+	/** Completion tokens counted from the token ids of the stream. */
+	completionTokens?: number;
 }
 
 function apiUrl(baseUrl: string, path: string): string {
@@ -60,7 +64,7 @@ function apiUrl(baseUrl: string, path: string): string {
 	return `${base}${path}`;
 }
 
-function authHeaders(provider: Provider): Record<string, string> {
+export function authHeaders(provider: Provider): Record<string, string> {
 	const headers: Record<string, string> = { 'content-type': 'application/json' };
 	if (provider.apiKey) headers.authorization = `Bearer ${provider.apiKey}`;
 	return headers;
@@ -330,7 +334,7 @@ interface PendingCall {
 export async function streamChat(
 	provider: Provider,
 	payload: ChatPayload,
-	onDelta: (delta: { content?: string; reasoning?: string }) => void,
+	onDelta: (delta: { content?: string; reasoning?: string; tokens?: number }) => void,
 	signal?: AbortSignal
 ): Promise<UpstreamChunk> {
 	const res = await fetch(apiUrl(provider.baseUrl, '/chat/completions'), {
@@ -348,6 +352,10 @@ export async function streamChat(
 	let finishReason: string | null = null;
 	let usage: Usage | undefined;
 	let timings: RuntimeTimings | undefined;
+	// Exact counts, when the server reports token ids or per token timings.
+	let countedPrompt: number | undefined;
+	let countedCompletion: number | undefined;
+	let predictedTotal = 0;
 
 	/**
 	 * Folds one chunk into the running result. Deltas are handed to the caller
@@ -367,6 +375,25 @@ export async function streamChat(
 		const choice = asRecord(Array.isArray(chunk.choices) ? chunk.choices[0] : undefined);
 		if (typeof choice.finish_reason === 'string') finishReason = choice.finish_reason;
 		timings = readRuntimeTimings(chunk) ?? timings;
+
+		// vLLM sends the prompt ids on the first chunk and the ids of the generated
+		// tokens on every chunk, which is an exact count while the answer streams.
+		const promptIds = chunk.prompt_token_ids;
+		if (Array.isArray(promptIds) && countedPrompt === undefined) countedPrompt = promptIds.length;
+		const deltaIds = chunk.token_ids;
+		let chunkTokens = Array.isArray(deltaIds) ? deltaIds.length : 0;
+		// llama.cpp reports a running total per token with timings_per_token, so
+		// the difference from the last chunk is the count for this one.
+		if (!chunkTokens && timings?.completion !== undefined) {
+			const step = timings.completion - predictedTotal;
+			if (step > 0) chunkTokens = step;
+			predictedTotal = timings.completion;
+		}
+		if (chunkTokens) {
+			countedCompletion = (countedCompletion ?? 0) + chunkTokens;
+			onDelta({ tokens: chunkTokens });
+		}
+
 		const delta = asRecord(choice.delta);
 		const message = asRecord(choice.message);
 		// Streaming chunks use delta, a plain JSON answer uses message.
@@ -422,6 +449,9 @@ export async function streamChat(
 		finishReason,
 		usage,
 		timings,
+		// A count from the stream wins over the running total of the timings.
+		promptTokens: countedPrompt ?? timings?.prompt,
+		completionTokens: countedCompletion ?? timings?.completion,
 		toolCalls: calls
 			.filter((c) => c && c.name)
 			.map((c, i) => ({ id: c.id || `call_${i + 1}`, name: c.name, argsText: c.args || '{}' }))

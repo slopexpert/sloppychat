@@ -3,6 +3,7 @@ import { render } from 'svelte/server';
 import ContextGauge from '$lib/components/ContextGauge.svelte';
 import { app } from '$lib/client/state.svelte';
 import { contextWindowFor } from '$lib/shared/context';
+import { withReportedWindow } from '$lib/server/tokens';
 import { DEFAULT_SETTINGS } from '$lib/shared/types';
 import type { Conversation, Message, ModelInfo } from '$lib/shared/types';
 
@@ -134,5 +135,25 @@ describe('ContextGauge', () => {
 		app.messages = [];
 		// The default system prompt occupies context before anything is sent.
 		expect(render(ContextGauge).body).toContain('progressbar');
+	});
+});
+
+describe('withReportedWindow', () => {
+	const support = { counter: 'llamacpp' as const, tokenIds: false, perToken: true, contextLength: 4096 };
+
+	it('applies the window a llama.cpp server reports for its model', () => {
+		expect(withReportedWindow([{ id: 'mock-model' }], support)).toEqual([
+			{ id: 'mock-model', contextLength: 4096 }
+		]);
+	});
+
+	it('leaves a list alone when the server reports no window', () => {
+		const models = [{ id: 'mock-model' }];
+		expect(withReportedWindow(models, { counter: 'none', tokenIds: false, perToken: false })).toBe(models);
+	});
+
+	it('leaves a list of several models as the provider gave it', () => {
+		const models = [{ id: 'a' }, { id: 'b' }];
+		expect(withReportedWindow(models, support)).toBe(models);
 	});
 });

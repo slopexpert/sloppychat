@@ -273,8 +273,8 @@ export type StreamEvent =
 	/** No turn is running for this conversation. */
 	| { type: 'idle' }
 	| { type: 'start'; messageId: string }
-	| { type: 'text'; text: string }
-	| { type: 'reasoning'; text: string }
+	| { type: 'text'; text: string; tokens?: number }
+	| { type: 'reasoning'; text: string; tokens?: number }
 	| { type: 'tool_call'; call: ToolCall }
 	/** A tool finished on the server, with the text the model reads back. */
 	| { type: 'tool_result'; toolCallId: string; isError: boolean; detail: string; data?: unknown }

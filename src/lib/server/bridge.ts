@@ -7,6 +7,7 @@ import type { Message, Provider, RuntimeTimings, ToolCall, Usage } from '$lib/sh
 import type { SseWriter } from './sse';
 import { modeOf, runTool } from './tools';
 import { waitForApproval } from './approvals';
+import { tokenSupport, countPrompt, type TokenSupport } from './tokens';
 
 /**
  * Drives one assistant turn: build the upstream payload, stream it into the
@@ -44,7 +45,7 @@ function resolveTarget(req: TurnRequest): { provider: Provider; model: string } 
  * Builds the request body from the merged parameter layers and the stored
  * history. The `extra` JSON field is merged last so provider specific knobs win.
  */
-function generationOptions(model: string, conversationId: string): ChatPayload {
+function generationOptions(model: string, conversationId: string, support?: TokenSupport): ChatPayload {
 	const settings = getSettings();
 	const conversation = getConversation(conversationId);
 	const params = resolveParams(
@@ -85,6 +86,11 @@ function generationOptions(model: string, conversationId: string): ChatPayload {
 		}
 	}
 
+	// Ask for the numbers this server can report about its own work. A server
+	// that does not know these fields is never asked for them.
+	if (support?.tokenIds) payload.return_token_ids = true;
+	if (support?.perToken) payload.timings_per_token = true;
+
 	const history: Message[] = [];
 	const system = [params.system.trim(), skills].filter(Boolean).join('\n\n');
 	if (system) {
@@ -113,13 +119,28 @@ function isToolRejection(message: string): boolean {
  */
 function measure(
 	upstream: Usage | undefined,
-	timing: { textChars: number; promptChars: number; ttftMs: number; decodeMs: number },
+	timing: {
+		textChars: number;
+		promptChars: number;
+		ttftMs: number;
+		decodeMs: number;
+		/** Exact counts from the stream, when the server reports them. */
+		promptTokens?: number;
+		completionTokens?: number;
+	},
 	reported?: RuntimeTimings
 ): Usage {
 	const estimatedCompletion = Math.ceil(timing.textChars / 4);
+	// The order is exact first: the usage report, then the server timings, then
+	// the count from the stream, and the character estimate last.
 	const completion =
-		upstream?.completion ?? reported?.completion ?? (timing.textChars ? estimatedCompletion : 0);
-	const prompt = upstream?.prompt ?? reported?.prompt ?? Math.ceil(timing.promptChars / 4);
+		upstream?.completion ??
+		reported?.completion ??
+		timing.completionTokens ??
+		(timing.textChars ? estimatedCompletion : 0);
+	const prompt =
+		upstream?.prompt ?? reported?.prompt ?? timing.promptTokens ?? Math.ceil(timing.promptChars / 4);
+	const counted = upstream?.completion !== undefined || reported?.completion !== undefined || timing.completionTokens !== undefined;
 	return {
 		prompt,
 		completion,
@@ -132,7 +153,7 @@ function measure(
 		cachedPrompt: reported?.cachedPrompt,
 		queueMs: reported?.queueMs,
 		reported: reported ? true : undefined,
-		estimated: upstream?.completion === undefined && reported?.completion === undefined
+		estimated: counted ? undefined : true
 	};
 }
 
@@ -150,26 +171,33 @@ async function streamIntoAssistant(
 	let reasonAll = '';
 	let emitted = false;
 	let lastFlush = Date.now();
+	/** Tokens the server counted for the chunks that are still buffered. */
+	let tokenBuf = 0;
 	// Timing for the prefill and generation rates.
 	const requestStart = Date.now();
 	let firstTokenAt: number | undefined;
 
 	const flush = () => {
+		const tokens = tokenBuf;
+		tokenBuf = 0;
 		if (reasoningBuf) {
-			w.send({ type: 'reasoning', text: reasoningBuf });
+			// The count rides on the answer when there is one, so a client never
+			// counts the same tokens two times.
+			w.send({ type: 'reasoning', text: reasoningBuf, tokens: textBuf ? 0 : tokens });
 			reasoningBuf = '';
 		}
 		if (textBuf) {
-			w.send({ type: 'text', text: textBuf });
+			w.send({ type: 'text', text: textBuf, tokens });
 			textBuf = '';
 		}
 		lastFlush = Date.now();
 		if (emitted) finalizeMessage(assistantId, { text: textAll, reasoning: reasonAll || undefined });
 	};
 
-	const onDelta = (delta: { content?: string; reasoning?: string }) => {
+	const onDelta = (delta: { content?: string; reasoning?: string; tokens?: number }) => {
 		emitted = true;
 		firstTokenAt ??= Date.now();
+		tokenBuf += delta.tokens ?? 0;
 		if (delta.content) {
 			textBuf += delta.content;
 			textAll += delta.content;
@@ -219,7 +247,9 @@ async function streamIntoAssistant(
 			textChars: (textAll + reasonAll).length,
 			promptChars: JSON.stringify(payload.messages ?? []).length,
 			ttftMs: first - requestStart,
-			decodeMs: Math.max(0, finishedAt - first)
+			decodeMs: Math.max(0, finishedAt - first),
+			promptTokens: result.promptTokens,
+			completionTokens: result.completionTokens
 		},
 		result.timings
 	);
@@ -253,11 +283,13 @@ function parseArgs(raw: string): unknown {
  */
 export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSignal): Promise<void> {
 	const { provider, model } = resolveTarget(req);
+	// The provider is asked one time what it can report about its own tokens.
+	const support = await tokenSupport(provider);
 
 	// Close anything a lost turn left open before the history goes upstream.
 	closeDanglingToolCalls(req.conversationId);
 
-	let payload = generationOptions(model, req.conversationId);
+	let payload = generationOptions(model, req.conversationId, support);
 	if (!payload.messages.length) throw new TurnError('Nothing to send: the conversation is empty');
 
 	for (let round = 0; ; round++) {
@@ -335,7 +367,24 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 		}
 
 		// The results are in the history now, so the model answers them.
-		payload = generationOptions(model, req.conversationId);
+		payload = generationOptions(model, req.conversationId, support);
+	}
+}
+
+/**
+ * The exact prompt count of a conversation, when the provider counts tokens
+ * itself. The body is the one a turn would send, so the number matches the
+ * prompt the model reads.
+ */
+export async function promptTokenCount(conversationId: string): Promise<number | undefined> {
+	try {
+		const { provider, model } = resolveTarget({ conversationId });
+		const support = await tokenSupport(provider);
+		if (support.counter === 'none') return undefined;
+		return await countPrompt(provider, generationOptions(model, conversationId, support).messages);
+	} catch {
+		// No provider, no model, or no tokenizer: the caller keeps its estimate.
+		return undefined;
 	}
 }
 

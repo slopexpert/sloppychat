@@ -81,6 +81,8 @@ export class AppState {
 	/** Estimated generation speed while a turn is streaming. */
 	liveRate = $state<number | undefined>(undefined);
 	#streamChars = 0;
+	/** Tokens the server counted for this answer, which beats the estimate. */
+	#streamTokens = 0;
 	#streamFirstAt: number | null = null;
 	/** Rough prompt size for the turn in flight, used for the prefill rate. */
 	#promptTokens = 0;
@@ -90,6 +92,11 @@ export class AppState {
 	toasts = $state<Toast[]>([]);
 	/** Messages typed while a turn was streaming, sent in order afterwards. */
 	queued = $state<QueuedMessage[]>([]);
+	/**
+	 * Exact prompt tokens for the open chat, from the provider's own tokenizer.
+	 * Null means the provider cannot count, so the view keeps its estimate.
+	 */
+	contextExact = $state<number | null>(null);
 	pendingImages = $state<ImageRef[]>([]);
 	pendingDocuments = $state<PendingDocument[]>([]);
 	uploading = $state(false);
@@ -300,6 +307,8 @@ export class AppState {
 			this.queued = queued ?? [];
 			this.toolProgress = {};
 			this.#rememberConversation(conversation.id);
+			// The gauge shows the exact prompt count when the provider can give it.
+			void this.refreshContextExact();
 			// An older chat may predate model discovery.
 			if (!conversation.model) void this.ensureModel();
 			// Picking a chat in the drawer means the drawer has done its job.
@@ -397,6 +406,23 @@ export class AppState {
 		// A trailing user or tool message means no answer was ever produced.
 		if (last.role === 'user' || last.role === 'tool') {
 			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
+		}
+	}
+
+	/** Asks the server to count the prompt, which only some providers can do. */
+	async refreshContextExact(): Promise<void> {
+		const id = this.conversation?.id;
+		if (!id) {
+			this.contextExact = null;
+			return;
+		}
+		try {
+			const answer = await api.countTokens(id);
+			// A late answer for another chat must not land on this one.
+			if (this.conversation?.id !== id) return;
+			this.contextExact = answer.exact ? answer.prompt : null;
+		} catch {
+			if (this.conversation?.id === id) this.contextExact = null;
 		}
 	}
 
@@ -546,6 +572,8 @@ export class AppState {
 		try {
 			const { message } = await api.addMessage(this.conversation.id, { text, images, documents });
 			this.messages = [...this.messages, message];
+			// The prompt for the next turn just grew, so count it again.
+			void this.refreshContextExact();
 			await this.refreshConversations();
 			this.conversation = this.conversations.find((c) => c.id === this.conversation?.id) ?? this.conversation;
 		} catch (err) {
@@ -621,6 +649,8 @@ export class AppState {
 			this.stopPrefillTimer();
 			this.#controller = null;
 			await this.refreshMessages().catch(() => {});
+			// The turn added rows, so the exact prompt count changed.
+			void this.refreshContextExact();
 			// The server starts the next queued message by itself, so this page only
 			// attaches to whatever runs now, and picks up the queue again.
 			if (!signal.aborted) void this.resume();
@@ -648,6 +678,7 @@ export class AppState {
 				// counters so the live rate does not restart from zero.
 				if (this.messages.some((message) => message.id === event.messageId)) break;
 				this.#streamChars = 0;
+				this.#streamTokens = 0;
 				this.#streamFirstAt = null;
 				this.messages = [
 					...this.messages,
@@ -669,13 +700,13 @@ export class AppState {
 				this.patchLive((message) => {
 					message.text += event.text;
 				});
-				this.countLive(event.text.length);
+				this.countLive(event.text.length, event.tokens);
 				break;
 			case 'reasoning':
 				this.patchLive((message) => {
 					message.reasoning = (message.reasoning ?? '') + event.text;
 				});
-				this.countLive(event.text.length);
+				this.countLive(event.text.length, event.tokens);
 				break;
 			case 'tool_call':
 				this.patchLive((message) => {
@@ -716,7 +747,8 @@ export class AppState {
 		this.#requestStartedAt = Date.now();
 		this.#promptTokens = contextUsage({
 			messages: this.messages,
-			system: this.params.system
+			system: this.params.system,
+			exact: this.contextExact
 		}).used;
 		this.prefilling = true;
 		const tick = () => {
@@ -736,13 +768,18 @@ export class AppState {
 		this.prefilling = false;
 	}
 
-	/** Rough generation speed: four characters per token over the decode window. */
-	private countLive(chars: number): void {
+	/** Generation speed: tokens the server counted, or four characters per token. */
+	private countLive(chars: number, tokens = 0): void {
 		// The first token ends the prefill phase.
 		this.stopPrefillTimer();
 		this.#streamChars += chars;
+		this.#streamTokens += tokens;
 		this.#streamFirstAt ??= Date.now();
-		this.liveRate = liveRate(this.#streamChars, Date.now() - this.#streamFirstAt);
+		const elapsed = Date.now() - this.#streamFirstAt;
+		this.liveRate =
+			this.#streamTokens > 0
+				? ratePerSecond(this.#streamTokens, elapsed)
+				: liveRate(this.#streamChars, elapsed);
 	}
 
 	private patchLive(fn: (message: Message) => void): void {

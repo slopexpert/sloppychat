@@ -121,6 +121,32 @@ const mock = createServer((req, res) => {
 		return;
 	}
 
+	if (url.pathname === '/props') {
+		// The shape llama.cpp uses: the loaded model and its window.
+		res.writeHead(200, { 'content-type': 'application/json' });
+		res.end(
+			JSON.stringify({
+				default_generation_settings: { n_ctx: 8192 },
+				model_path: '/models/mock.gguf',
+				total_slots: 1
+			})
+		);
+		return;
+	}
+
+	if (url.pathname === '/apply-template') {
+		res.writeHead(200, { 'content-type': 'application/json' });
+		res.end(JSON.stringify({ prompt: '<|im_start|>user\nmock prompt<|im_end|>\n<|im_start|>assistant\n' }));
+		return;
+	}
+
+	if (url.pathname === '/tokenize') {
+		// A fixed count, so the test can assert the exact number the app shows.
+		res.writeHead(200, { 'content-type': 'application/json' });
+		res.end(JSON.stringify({ tokens: Array.from({ length: 42 }, (_, index) => index + 1) }));
+		return;
+	}
+
 	if (url.pathname === '/v1/chat/completions') {
 		let raw = '';
 		req.on('data', (part) => (raw += part));
@@ -411,6 +437,11 @@ try {
 		models.body.models?.length === 1 && models.body.models[0].vision === true,
 		JSON.stringify(models.body)
 	);
+	check(
+		'the model list carries the window the server reported',
+		models.body.models?.[0]?.contextLength === 8192,
+		JSON.stringify(models.body.models)
+	);
 
 	const conversation = await json(`${APP}/api/conversations`, {
 		method: 'POST',
@@ -524,6 +555,23 @@ try {
 		'conversation title follows the first message',
 		history.body.conversation.title.startsWith('Read the mock page'),
 		history.body.conversation.title
+	);
+
+	// The provider counts tokens itself, so the prompt count is not a guess.
+	const exact = await json(`${APP}/api/tokens`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ conversationId })
+	});
+	check(
+		'the prompt is counted by the provider',
+		exact.body.exact === true && exact.body.prompt === 42,
+		JSON.stringify(exact.body)
+	);
+	check(
+		'the provider is asked for its own timings',
+		upstream.lastBody?.timings_per_token === true,
+		JSON.stringify(Object.keys(upstream.lastBody ?? {}))
 	);
 
 	// The mode ask first holds the turn until a window answers.

@@ -138,6 +138,8 @@ export interface ContextUsage {
 	ratio?: number;
 	/** True when a real usage report is behind the count. */
 	measured: boolean;
+	/** True when the provider counted the prompt itself. */
+	exact?: boolean;
 }
 
 /**
@@ -151,7 +153,21 @@ export function contextUsage(input: {
 	messages: Message[];
 	system?: string | null;
 	window?: number;
+	/** Exact prompt tokens the provider counted for the whole prompt. */
+	exact?: number | null;
 }): ContextUsage {
+	// A count from the provider's own tokenizer covers the system prompt and every
+	// message, so nothing else has to be estimated.
+	if (typeof input.exact === 'number' && input.exact > 0) {
+		const window = input.window;
+		return {
+			used: input.exact,
+			window,
+			ratio: window && window > 0 ? input.exact / window : undefined,
+			measured: true,
+			exact: true
+		};
+	}
 	const messages = input.messages;
 	let lastReport = -1;
 	for (let at = messages.length - 1; at >= 0; at--) {

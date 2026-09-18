@@ -14,7 +14,12 @@
 		const reported = app.availableModels.find((model) => model.id === app.model)?.contextLength;
 		const resolved = contextWindowFor(app.model, reported);
 		return {
-			...contextUsage({ messages: app.messages, system: app.params.system, window: resolved.window }),
+			...contextUsage({
+				messages: app.messages,
+				system: app.params.system,
+				window: resolved.window,
+				exact: app.contextExact
+			}),
 			assumed: resolved.assumed
 		};
 	});
@@ -45,7 +50,11 @@
 			remaining === undefined ? '' : `${formatTokens(remaining)} left`,
 			percent === undefined ? '' : `${percent}% full`,
 			lastTurn?.prompt ? `last turn: ${formatTokens(lastTurn.prompt)} in, ${formatTokens(lastTurn.completion ?? 0)} out` : '',
-			usage.measured ? 'counted from the last usage report' : 'estimated from text length'
+				usage.exact
+					? "counted by the provider's tokenizer"
+					: usage.measured
+						? 'counted from the last usage report'
+						: 'estimated from text length'
 		]
 			.filter(Boolean)
 			.join('\n')

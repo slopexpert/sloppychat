@@ -31,10 +31,12 @@ async function run(chunks: unknown[]) {
 		vi.fn(async () => sseResponse(chunks))
 	);
 	const deltas: string[] = [];
+	const tokens: number[] = [];
 	const result = await streamChat(provider, { model: 'm', messages: [], stream: true }, (delta) => {
 		if (delta.content) deltas.push(delta.content);
+		if (delta.tokens) tokens.push(delta.tokens);
 	});
-	return { result, deltas };
+	return { result, deltas, tokens };
 }
 
 afterEach(() => {
@@ -116,5 +118,40 @@ describe('vLLM per request metrics', () => {
 		expect(result.timings?.queueMs).toBe(3.1);
 		// 1000 / mean inter token latency is the decode rate.
 		expect(result.timings?.tgRate).toBeCloseTo(78.74, 1);
+	});
+});
+
+describe('token counts from the stream', () => {
+	it('counts the token ids a vLLM stream reports', async () => {
+		const { result, tokens } = await run([
+			{
+				choices: [{ index: 0, delta: { content: 'a' }, finish_reason: null }],
+				prompt_token_ids: [1, 2, 3, 4]
+			},
+			{ choices: [{ index: 0, delta: { content: 'b' }, finish_reason: null }], token_ids: [10] },
+			{ choices: [{ index: 0, delta: { content: 'c' }, finish_reason: 'stop' }], token_ids: [11, 12] }
+		]);
+		expect(result.promptTokens).toBe(4);
+		expect(result.completionTokens).toBe(3);
+		// The count reaches the client one chunk at a time.
+		expect(tokens).toEqual([1, 2]);
+	});
+
+	it('counts the running total that llama.cpp reports per token', async () => {
+		const timing = { prompt_n: 12, predicted_n: 1, prompt_per_second: 100, predicted_per_second: 40 };
+		const { result, tokens } = await run([
+			{ choices: [{ index: 0, delta: { content: 'a' }, finish_reason: null }], timings: timing },
+			{
+				choices: [{ index: 0, delta: { content: 'b' }, finish_reason: null }],
+				timings: { ...timing, predicted_n: 2 }
+			},
+			{
+				choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+				timings: { ...timing, predicted_n: 2 }
+			}
+		]);
+		expect(result.promptTokens).toBe(12);
+		expect(result.completionTokens).toBe(2);
+		expect(tokens).toEqual([1, 1]);
 	});
 });
