@@ -55,6 +55,20 @@ function check(label, condition, extra = '') {
 	process.exitCode = 1;
 }
 
+/**
+ * Records a defect that a later step of specs/plan.md repairs. The check passes
+ * while the defect is present, and it fails after the behavior changes, so the
+ * repair commit must replace the call with check().
+ */
+function checkDefect(label, defectPresent, extra = '') {
+	if (defectPresent) {
+		passed++;
+		console.log(`ok   KNOWN DEFECT ${label}${extra ? ` - ${extra}` : ''}`);
+		return;
+	}
+	check(`${label} (the defect is gone: replace checkDefect with check)`, false, extra);
+}
+
 /* --------------------------------------------------------------- mock provider */
 
 function sse(res, chunks) {
@@ -603,6 +617,71 @@ try {
 		'a stopped answer is marked as interrupted',
 		stoppedAnswer?.usage?.interrupted === true,
 		JSON.stringify(stoppedAnswer?.usage)
+	);
+
+	// The two defects that steps 3 and 4 of specs/plan.md repair. Both checks pass
+	// while the defect is present, so the repair must flip them to check().
+
+	// Defect 1: the browser runs the tools, so a turn stops after a tool call when
+	// no page is attached to run the call.
+	const toolChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const toolId = toolChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${toolId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'Read the mock page again please' })
+	});
+	await readStream(`${APP}/api/chat`, { conversationId: toolId });
+	await new Promise((resolve) => setTimeout(resolve, 800));
+	const stuckTurn = await json(`${APP}/api/conversations/${toolId}`);
+	const stuckRows = stuckTurn.body.messages ?? [];
+	const stuckToolRows = stuckRows.filter((message) => message.role === 'tool').length;
+	const stuckAnswers = stuckRows.filter(
+		(message) => message.role === 'assistant' && message.text.length > 0
+	).length;
+	checkDefect(
+		'a turn that asks for a tool finishes with no page attached',
+		stuckToolRows === 0 && stuckAnswers === 0,
+		`${stuckToolRows} tool rows, ${stuckAnswers} answers`
+	);
+
+	// Defect 2: a message that arrives while an answer streams waits in the page
+	// only, so the server answers the first question and stops.
+	const busyChat = await json(`${APP}/api/conversations`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ providerId, model: 'mock-model' })
+	});
+	const busyId = busyChat.body.conversation?.id;
+	await json(`${APP}/api/conversations/${busyId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'slow stream please' })
+	});
+	const firstTurn = readStream(`${APP}/api/chat`, { conversationId: busyId });
+	await new Promise((resolve) => setTimeout(resolve, 300));
+	await json(`${APP}/api/conversations/${busyId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ text: 'and what comes next?' })
+	});
+	await json(`${APP}/api/chat`, { conversationId: busyId });
+	await firstTurn;
+	await new Promise((resolve) => setTimeout(resolve, 1500));
+	const busyTurn = await json(`${APP}/api/conversations/${busyId}`);
+	const busyRows = busyTurn.body.messages ?? [];
+	const busyQuestions = busyRows.filter((message) => message.role === 'user').length;
+	const busyAnswers = busyRows.filter(
+		(message) => message.role === 'assistant' && message.text.length > 0
+	).length;
+	checkDefect(
+		'a message that arrives during a turn waits on the server',
+		busyQuestions === 2 && busyAnswers === 1,
+		`${busyQuestions} questions, ${busyAnswers} answers`
 	);
 
 	// Skills: a markdown file becomes instructions the model loads on demand.
