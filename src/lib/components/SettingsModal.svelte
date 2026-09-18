@@ -570,11 +570,6 @@
 									}}
 								/>
 							</div>
-							<p class="text-xs text-faint">
-								A skill is a markdown file with <code>name</code> and <code>description</code> in
-								frontmatter. Only those two reach the prompt; the model reads the rest with the
-								read_skill tool when a task matches.
-							</p>
 						</div>
 
 						{#each app.skills as skill (skill.id)}
