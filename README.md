@@ -42,6 +42,11 @@ Single user chat UI for any OpenAI compatible endpoint. SvelteKit, Tailwind, sql
   and `description` frontmatter, or write them in Settings. Only the names and
   descriptions go into the prompt; the model pulls the instructions in with the
   `read_skill` tool when a task matches, so a large library stays cheap on context
+- Prompt library: reusable snippets and system prompts, written in Settings. Type `/name` at
+  the start of a line and Enter sends the message with the command filled in, so
+  `/notes draft this` leaves as the prompt text plus the rest of the line. The menu lists the
+  slug only, and Tab inserts the picked entry while you type, with its first blank selected.
+  A system prompt is offered by the params panel of any chat
 - Images: attach, paste or drop them, stored in sqlite and inlined for vision models
 - PDFs: text is extracted page by page and pages are rendered to images, so text only
   models get the text and vision models also get the pages
@@ -116,6 +121,25 @@ description: Use when the user asks for release notes or a changelog.
 - Enabled skills are listed by name and description in the system prompt, and
   `read_skill` fetches the full instructions when the model asks for them
 - Disable a skill to keep it out of the prompt without deleting it
+
+## Prompt library
+
+A prompt is one text with a title, stored under Settings, Prompts. Two kinds:
+
+- `message snippet`: type `/` at the start of a line in the composer and keep typing the
+  slug. The menu lists the slugs, arrow keys move through them, Tab inserts the picked entry
+  at the caret, and Escape closes the menu. Enter always sends, and the send fills the
+  command in first: `/notes draft this` leaves as the prompt text followed by `draft this`.
+  Only a slug that names a prompt is filled in, so `/etc/hosts` stays a path, and a slash in
+  the middle of a line is left alone
+- `system prompt`: the params panel lists these above the system field. Picking one copies
+  the text into the field, where it stays editable
+
+Both kinds can hold variables, filled in where the text is used:
+`{{date}}`, `{{time}}`, `{{datetime}}`, `{{model}}`, `{{provider}}`, `{{chat}}`. The system
+prompt is filled again on every request, so `{{date}}` never goes stale in a long chat.
+Any other name in braces, `{{topic}}` for example, is left alone: in a snippet it becomes
+the blank the caret lands on, and in a system prompt it stays visible as a hole to fill.
 
 ## PDF handling
 

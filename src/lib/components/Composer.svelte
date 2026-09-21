@@ -1,6 +1,16 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import Icon from './Icon.svelte';
 	import { app } from '$lib/client/state.svelte';
+	import {
+		expandCommands,
+		expandPromptVars,
+		filterPrompts,
+		firstBlank,
+		promptKey,
+		slashQuery,
+		type PromptEntry
+	} from '$lib/shared/prompts';
 
 	/** Floating composer: the conversation scrolls behind it. */
 
@@ -8,6 +18,13 @@
 	let area: HTMLTextAreaElement | undefined = $state();
 	let dragging = $state(false);
 	let fileInput: HTMLInputElement | undefined = $state();
+	/** A live `/name` token at the caret, which opens the snippet menu. */
+	let slash = $state<{ start: number; query: string; caret: number } | null>(null);
+	let pick = $state(0);
+
+	const snippets = $derived(app.prompts.filter((entry) => entry.kind === 'user'));
+	const matches = $derived(slash ? filterPrompts(app.prompts, slash.query, 'user') : []);
+	const open = $derived(!!slash && matches.length > 0);
 
 	const hasContent = $derived(
 		text.trim().length > 0 || app.pendingImages.length > 0 || app.pendingDocuments.length > 0
@@ -23,14 +40,82 @@
 		target.style.height = `${Math.min(target.scrollHeight, 280)}px`;
 	});
 
+	/**
+	 * Sending fills the `/slug` commands in first, so Enter never has two jobs:
+	 * the text that leaves is the text with every command replaced.
+	 */
 	function submit() {
 		if (!canSend) return;
-		const value = text;
+		const value = expandCommands(text, app.prompts, app.promptVars());
 		text = '';
+		slash = null;
 		void app.send(value);
 	}
 
+	/** Reads the caret and decides whether a snippet menu belongs on screen. */
+	function syncSlash() {
+		if (!area || !snippets.length) {
+			slash = null;
+			return;
+		}
+		const caret = area.selectionStart ?? 0;
+		const found = slashQuery(area.value, caret);
+		if (!found) {
+			slash = null;
+			return;
+		}
+		if (!slash || slash.query !== found.query) pick = 0;
+		slash = { ...found, caret };
+	}
+
+	/** Replaces a `/name` token with the body, blanks ready to type over. */
+	async function insertPrompt(entry: PromptEntry, token: { start: number; caret: number }) {
+		const body = expandPromptVars(entry.body, app.promptVars());
+		if (!body.trim()) {
+			// An empty prompt is a library entry nobody filled in yet.
+			app.toast('error', `${entry.title} has no text yet. Add it under Settings, Prompts.`);
+			return;
+		}
+		const next = text.slice(0, token.start) + body + text.slice(token.caret);
+		const after = token.start + body.length;
+		const blank = firstBlank(body);
+		text = next;
+		slash = null;
+		await tick();
+		if (!area) return;
+		// The binding may need one more flush before the field holds the new text.
+		if (area.value !== next) await tick();
+		area.focus();
+		const from = blank ? token.start + blank.start : after;
+		const to = blank ? token.start + blank.end : after;
+		area.setSelectionRange(from, to);
+	}
+
 	function onKeydown(event: KeyboardEvent) {
+		if (open && matches.length) {
+			if (event.key === 'ArrowDown') {
+				event.preventDefault();
+				pick = (pick + 1) % matches.length;
+				return;
+			}
+			if (event.key === 'ArrowUp') {
+				event.preventDefault();
+				pick = (pick - 1 + matches.length) % matches.length;
+				return;
+			}
+			if (event.key === 'Escape') {
+				event.preventDefault();
+				slash = null;
+				return;
+			}
+			// Tab takes the hightlighted entry. Enter keeps sending, and the send
+			// fills the command in, so a half typed slug never eats the keystroke.
+			if (event.key === 'Tab') {
+				event.preventDefault();
+				if (slash) void insertPrompt(matches[Math.min(pick, matches.length - 1)], slash);
+				return;
+			}
+		}
 		if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
 			event.preventDefault();
 			submit();
@@ -147,17 +232,49 @@
 			</div>
 		{/if}
 
+		{#if open}
+			<ul
+				class="mb-1 max-h-60 overflow-y-auto rounded-card border border-line bg-surface/95 py-1 shadow-lg backdrop-blur"
+				role="listbox"
+				aria-label="Prompts"
+			>
+				{#each matches as entry, index (entry.id)}
+					<li
+						id={`snippet-${index}`}
+						role="option"
+						aria-selected={index === pick}
+						class="flex cursor-pointer items-baseline gap-2 px-2 py-1 text-xs {index === pick
+							? 'bg-accent/10 text-fg'
+							: 'text-muted'}"
+						onmousedown={(event) => {
+							// Keep the caret in the message box while the click lands.
+							event.preventDefault();
+							if (slash) void insertPrompt(entry, slash);
+						}}
+						onmouseenter={() => (pick = index)}
+					>
+						<span class="shrink-0 font-mono {index === pick ? 'text-accent' : 'text-faint'}">
+							/{promptKey(entry.title)}
+						</span>
+						{#if entry.description}
+							<span class="min-w-0 flex-1 truncate-clip text-faint">{entry.description}</span>
+						{/if}
+					</li>
+				{/each}
+			</ul>
+		{/if}
+
 		<div
 			class="card bg-surface/95 p-2 shadow-lg backdrop-blur transition-colors {dragging
 				? 'border-accent'
 				: ''}"
+			role="presentation"
 			ondragover={(event) => {
 				event.preventDefault();
 				dragging = true;
 			}}
 			ondragleave={() => (dragging = false)}
 			ondrop={onDrop}
-			role="presentation"
 		>
 			<div class="flex items-end gap-2">
 				<button
@@ -185,12 +302,21 @@
 					bind:this={area}
 					bind:value={text}
 					onkeydown={onKeydown}
+					oninput={syncSlash}
+					onclick={syncSlash}
+					onkeyup={(event) => {
+						if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) syncSlash();
+					}}
 					onpaste={onPaste}
 					rows="1"
 					autofocus
 					aria-label="Message"
+					aria-autocomplete="list"
+					aria-activedescendant={open ? `snippet-${pick}` : undefined}
 					placeholder={app.provider ? 'Send a message' : 'Add a provider in Settings first'}
-					title="Enter sends, Shift+Enter adds a line"
+					title={snippets.length
+						? 'Enter sends and fills /prompts in, Shift+Enter adds a line, Tab takes the menu'
+						: 'Enter sends, Shift+Enter adds a line'}
 					class="max-h-70 flex-1 resize-none bg-transparent py-2 text-body leading-relaxed text-fg placeholder:text-faint"
 				></textarea>
 

@@ -22,6 +22,7 @@ import {
 	type ToolResult
 } from '$lib/shared/types';
 import type { Skill } from '$lib/shared/skills';
+import { clockVars, type PromptEntry, type PromptVars } from '$lib/shared/prompts';
 import { resolveParams } from '$lib/shared/params';
 import { TOOL_CATALOG } from '$lib/shared/tools';
 import { contextUsage, liveRate, ratePerSecond } from '$lib/shared/stats';
@@ -72,6 +73,8 @@ export class AppState {
 	conversation = $state<Conversation | null>(null);
 	messages = $state<Message[]>([]);
 	skills = $state<Skill[]>([]);
+	/** The prompt library: composer snippets and system prompt presets. */
+	prompts = $state<PromptEntry[]>([]);
 	models = $state<Record<string, ModelInfo[]>>({});
 	modelsLoading = $state<Record<string, boolean>>({});
 	modelsError = $state<Record<string, string>>({});
@@ -180,6 +183,7 @@ export class AppState {
 			this.providers = providers.providers;
 			this.conversations = conversations.conversations;
 			void this.refreshSkills();
+			void this.refreshPrompts();
 			void this.refreshFolders();
 			// The MCP servers are opened once the app has its settings.
 			void this.refreshMcp();
@@ -1159,6 +1163,25 @@ export class AppState {
 		} catch (err) {
 			this.toast('error', errorText(err));
 		}
+	}
+
+	async refreshPrompts(): Promise<void> {
+		try {
+			const { prompts } = await api.listPrompts();
+			this.prompts = prompts;
+		} catch (err) {
+			this.toast('error', errorText(err));
+		}
+	}
+
+	/** The values a `{{variable}}` in a prompt is filled with on this device. */
+	promptVars(): PromptVars {
+		return {
+			...clockVars(),
+			model: this.model,
+			provider: this.provider?.name ?? '',
+			chat: this.conversation?.title ?? ''
+		};
 	}
 
 	async reloadProviders(): Promise<void> {

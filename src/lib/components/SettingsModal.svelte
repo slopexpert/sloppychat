@@ -7,6 +7,7 @@
 	import ParamsForm from './ParamsForm.svelte';
 	import Icon from './Icon.svelte';
 	import ToolList from './ToolList.svelte';
+	import { PROMPT_VARS, promptKey, type PromptKind } from '$lib/shared/prompts';
 
 	interface Choice {
 		id: string;
@@ -40,13 +41,19 @@
 		onclose
 	}: { open?: boolean; onclose?: () => void } = $props();
 
-	let tab = $state<'providers' | 'tools' | 'skills' | 'generation' | 'appearance' | 'mcp'>('providers');
+	let tab = $state<'providers' | 'tools' | 'skills' | 'prompts' | 'generation' | 'appearance' | 'mcp'>('providers');
 	let skillInput: HTMLInputElement | undefined = $state();
 	/** A pasted Cursor config, and what the last MCP action answered. */
 	let mcpJson = $state('');
 	let mcpNote = $state('');
 	/** Body text being typed, saved when the field is left or Save is pressed. */
 	let skillDrafts = $state<Record<string, string>>({});
+	/** Prompt bodies being typed, kept apart from the saved library. */
+	let promptDrafts = $state<Record<string, string>>({});
+	/** The variable names shown as the hint, spelled with their braces. */
+	const varHint = PROMPT_VARS.map((name) => `{{${name}}}`).join('  ');
+	/** Saved system prompts, offered by the generation tab too. */
+	const systemPrompts = $derived(app.prompts.filter((entry) => entry.kind === 'system'));
 	/** The modal only renders in the browser, so matchMedia is safe here. */
 	const systemDark = typeof matchMedia === 'function' && matchMedia('(prefers-color-scheme: dark)').matches;
 	let newName = $state('');
@@ -205,6 +212,37 @@
 		}
 	}
 
+	/** A blank prompt to type into, with a title that is not taken yet. */
+	async function addPrompt(kind: PromptKind = 'user') {
+		const taken = new Set(app.prompts.map((entry) => entry.title.toLowerCase()));
+		let title = kind === 'system' ? 'new system prompt' : 'new prompt';
+		for (let index = 2; taken.has(title); index++) title = `${kind === 'system' ? 'new system prompt' : 'new prompt'} ${index}`;
+		try {
+			await api.createPrompt({ title, description: '', body: '', kind });
+			await app.refreshPrompts();
+		} catch (err) {
+			app.toast('error', err instanceof Error ? err.message : String(err));
+		}
+	}
+
+	async function savePrompt(id: string, patch: Partial<{ title: string; description: string; body: string; kind: PromptKind }>) {
+		try {
+			await api.updatePrompt(id, patch);
+			await app.refreshPrompts();
+		} catch (err) {
+			app.toast('error', err instanceof Error ? err.message : String(err));
+		}
+	}
+
+	async function removePrompt(id: string) {
+		try {
+			await api.deletePrompt(id);
+			await app.refreshPrompts();
+		} catch (err) {
+			app.toast('error', err instanceof Error ? err.message : String(err));
+		}
+	}
+
 	async function testProvider(id: string) {
 		await app.refreshModels(id);
 		const error = app.modelsError[id];
@@ -257,7 +295,7 @@
 			</header>
 
 			<div class="flex flex-wrap gap-1 border-b border-line px-4 py-2 text-sm">
-				{#each [['providers', 'Providers', 'key'], ['tools', 'Tools', 'wrench'], ['mcp', 'MCP', 'globe'], ['skills', 'Skills', 'book'], ['generation', 'Generation', 'sliders'], ['appearance', 'Appearance', 'sparkles']] as [key, label, icon] (key)}
+				{#each [['providers', 'Providers', 'key'], ['tools', 'Tools', 'wrench'], ['mcp', 'MCP', 'globe'], ['skills', 'Skills', 'book'], ['prompts', 'Prompts', 'fileText'], ['generation', 'Generation', 'sliders'], ['appearance', 'Appearance', 'sparkles']] as [key, label, icon] (key)}
 					<button
 						class="flex items-center gap-1.5 rounded-lg px-2.5 py-1 {tab === key
 							? 'bg-raised text-fg'
@@ -637,6 +675,107 @@
 							<p class="text-xs text-faint">No skills yet. Upload a markdown file to add one.</p>
 						{/if}
 					</div>
+				{:else if tab === 'prompts'}
+					<div class="space-y-3">
+						<div class="card space-y-2 p-3">
+							<div class="flex flex-wrap items-center gap-2">
+								<h3 class="flex-1 text-sm font-semibold">Prompts</h3>
+								<button class="btn text-xs" onclick={() => addPrompt('user')}>
+									<Icon name="plus" size={14} />
+									New snippet
+								</button>
+								<button class="btn text-xs" onclick={() => addPrompt('system')}>
+									<Icon name="plus" size={14} />
+									New system prompt
+								</button>
+							</div>
+							<p class="text-xs text-faint">
+								A snippet is typed into a message as
+								<span class="font-mono">/name</span>
+								and filled in when the message is sent, so /notes draft this leaves as the text
+								followed by "draft this". Tab inserts the picked entry while you type. A system prompt
+								fills the system field of a chat from the params panel.
+							</p>
+							<p class="text-xs text-faint">
+								Variables are filled in when the text is used:
+								<span class="font-mono">{varHint}</span>.
+								Any other name in braces stays as a blank to type over.
+							</p>
+						</div>
+
+						{#each app.prompts as entry (entry.id)}
+							<div class="card space-y-2 p-3">
+								<div class="flex flex-wrap items-center gap-2">
+									<input
+										class="field w-52 text-xs"
+										aria-label="Prompt title"
+										value={entry.title}
+										onchange={(event) =>
+											savePrompt(entry.id, {
+												title: (event.currentTarget as HTMLInputElement).value
+											})}
+									/>
+									<span class="font-mono text-xs text-faint">/{promptKey(entry.title)}</span>
+									<select
+										class="field w-36 text-xs"
+										aria-label="Prompt kind"
+										value={entry.kind}
+										onchange={(event) =>
+											savePrompt(entry.id, {
+												kind: (event.currentTarget as HTMLSelectElement).value as PromptKind
+											})}
+									>
+										<option value="user">message snippet</option>
+										<option value="system">system prompt</option>
+									</select>
+									<input
+										class="field min-w-40 flex-1 text-xs"
+										aria-label="Prompt description"
+										placeholder="What is it for?"
+										value={entry.description}
+										onchange={(event) =>
+											savePrompt(entry.id, {
+												description: (event.currentTarget as HTMLInputElement).value
+											})}
+									/>
+									<button
+										class="icon-btn hover:text-danger"
+										title="Delete this prompt"
+										aria-label="Delete this prompt"
+										onclick={() => removePrompt(entry.id)}
+									>
+										<Icon name="trash" />
+									</button>
+								</div>
+								<textarea
+										class="field min-h-28 font-mono text-xs"
+										aria-label="Prompt text, {entry.title}"
+										value={promptDrafts[entry.id] ?? entry.body}
+										oninput={(event) =>
+											(promptDrafts = {
+												...promptDrafts,
+												[entry.id]: (event.currentTarget as HTMLTextAreaElement).value
+											})}
+										onblur={() => savePrompt(entry.id, { body: promptDrafts[entry.id] ?? entry.body })}
+									></textarea>
+								<div class="flex items-center justify-end gap-2">
+									{#if !(promptDrafts[entry.id] ?? entry.body).trim()}
+										<span class="text-xs text-faint">empty, so it inserts nothing</span>
+									{/if}
+									<button
+										class="btn-accent text-xs"
+										onclick={() => savePrompt(entry.id, { body: promptDrafts[entry.id] ?? entry.body })}
+									>
+										Save
+									</button>
+								</div>
+							</div>
+						{/each}
+
+						{#if !app.prompts.length}
+							<p class="text-xs text-faint">No prompts yet. Add one to type it as /name in a message.</p>
+						{/if}
+					</div>
 				{:else if tab === 'generation'}
 					<div class="space-y-3">
 						<p class="text-xs text-faint">
@@ -646,6 +785,7 @@
 							value={app.settings.generation}
 							defaults={DEFAULT_PARAMS}
 							mode="defaults"
+							systemPresets={systemPrompts}
 							onchange={(patch) => save({ generation: { ...app.settings.generation, ...patch } })}
 						/>
 					</div>

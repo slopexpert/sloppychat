@@ -2,6 +2,7 @@ import { appendMessage, defaultProvider, enabledSkills, finalizeMessage, getConv
 import { streamChat, toUpstreamMessages, type ChatPayload } from './openai';
 import { advertisedTools, upstreamToolsFrom } from '$lib/shared/tools';
 import { skillsSection } from '$lib/shared/skills';
+import { clockVars, expandPromptVars } from '$lib/shared/prompts';
 import { parseExtra, PROTECTED_BODY_KEYS, resolveParams } from '$lib/shared/params';
 import type { Message, Provider, RuntimeTimings, ToolCall, ToolMode, Usage } from '$lib/shared/types';
 import type { SseWriter } from './sse';
@@ -72,6 +73,21 @@ async function generationOptions(model: string, conversationId: string, support?
 
 	// Skills are advertised by name and description; the text is loaded on demand.
 	const skills = skillsSection(enabledSkills());
+	// Variables such as {{date}} or {{model}} are filled in on every request, so a
+	// stored prompt can stay generic. A name the app does not know is left alone.
+	const providerName =
+		(conversation?.providerId ? getProvider(conversation.providerId)?.name : undefined) ??
+		defaultProvider()?.name ??
+		'';
+	const system = [
+		expandPromptVars(params.system.trim(), {
+			...clockVars(),
+			model,
+			provider: providerName,
+			chat: conversation?.title ?? ''
+		}),
+		skills
+	].filter(Boolean).join('\n\n');
 	const names = advertisedTools({
 		modes: settings.tools.modes,
 		skills: skills.length > 0,
@@ -103,7 +119,6 @@ async function generationOptions(model: string, conversationId: string, support?
 	if (support?.perToken) payload.timings_per_token = true;
 
 	const history: Message[] = [];
-	const system = [params.system.trim(), skills].filter(Boolean).join('\n\n');
 	if (system) {
 		history.push({
 			id: 'system',

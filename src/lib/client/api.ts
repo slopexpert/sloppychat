@@ -1,4 +1,5 @@
 import type { Skill } from '$lib/shared/skills';
+import type { PromptEntry, PromptKind } from '$lib/shared/prompts';
 import type {
 	ChatHit,
 	Conversation,
@@ -173,6 +174,13 @@ export const api = {
 	updateSkill: (id: string, patch: Partial<Skill>) =>
 		request<{ skill: Skill }>(`/api/skills/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 	deleteSkill: (id: string) => request<{ ok: true }>(`/api/skills/${id}`, { method: 'DELETE' }),
+
+	listPrompts: () => request<{ prompts: PromptEntry[] }>('/api/prompts'),
+	createPrompt: (input: { title: string; description?: string; body?: string; kind?: PromptKind }) =>
+		request<{ prompt: PromptEntry }>('/api/prompts', { method: 'POST', body: JSON.stringify(input) }),
+	updatePrompt: (id: string, patch: Partial<PromptEntry>) =>
+		request<{ prompt: PromptEntry }>(`/api/prompts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+	deletePrompt: (id: string) => request<{ ok: true }>(`/api/prompts/${id}`, { method: 'DELETE' }),
 
 	uploadDocument: (file: File) => {
 		const form = new FormData();

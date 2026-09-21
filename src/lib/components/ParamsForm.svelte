@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { GenerationParams, ReasoningEffort, ToolChoice } from '$lib/shared/types';
+	import type { PromptEntry } from '$lib/shared/prompts';
 
 	/**
 	 * Parameter editor. `value` is the layer being edited (global defaults or a
@@ -12,13 +13,16 @@
 		defaults,
 		onchange,
 		mode = 'override',
-		showSystem = true
+		showSystem = true,
+		systemPresets = []
 	}: {
 		value: Partial<GenerationParams>;
 		defaults: GenerationParams;
 		onchange: (patch: Partial<GenerationParams>) => void;
 		mode?: 'defaults' | 'override';
 		showSystem?: boolean;
+		/** Saved prompts to copy into the field below, variables and all. */
+		systemPresets?: PromptEntry[];
 	} = $props();
 
 	const overridden = $derived(
@@ -50,6 +54,17 @@
 
 	function clearKey(key: keyof GenerationParams) {
 		onchange({ [key]: mode === 'override' ? undefined : null });
+	}
+
+	/**
+	 * Copies a saved prompt into the field. The variables stay as they are, so the
+	 * server fills them in again on every request.
+	 */
+	function usePreset(event: Event) {
+		const select = event.currentTarget as HTMLSelectElement;
+		const entry = systemPresets.find((item) => item.id === select.value);
+		select.value = '';
+		if (entry) set('system', entry.body);
 	}
 
 	const current = (key: keyof GenerationParams) => value[key];
@@ -132,6 +147,19 @@
 	{#if showSystem}
 		<div>
 			<label class="text-xs text-muted" for="p-system">System prompt</label>
+			{#if systemPresets.length}
+				<select
+					class="field mt-1 w-full text-xs"
+					aria-label="Use a saved system prompt"
+					value=""
+					onchange={usePreset}
+				>
+					<option value="">Use a saved prompt</option>
+					{#each systemPresets as entry (entry.id)}
+						<option value={entry.id}>{entry.title}</option>
+					{/each}
+				</select>
+			{/if}
 			<textarea
 				id="p-system"
 				class="field mt-1 min-h-20 font-sans text-xs"

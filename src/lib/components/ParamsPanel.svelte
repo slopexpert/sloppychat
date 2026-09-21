@@ -7,6 +7,8 @@
 	import Icon from './Icon.svelte';
 
 	const inherited = $derived(resolveParams(app.settings.generation));
+	/** Saved prompts the user can copy into the system field below. */
+	const systemPrompts = $derived(app.prompts.filter((entry) => entry.kind === 'system'));
 
 	/** A conversation override layer: clearing a field removes the key again. */
 	async function change(patch: Partial<GenerationParams>) {
@@ -46,6 +48,7 @@
 		value={app.conversation?.params ?? {}}
 		defaults={{ ...inherited, system: app.conversation?.system || inherited.system }}
 		mode="override"
+		systemPresets={systemPrompts}
 		onchange={change}
 	/>
 
