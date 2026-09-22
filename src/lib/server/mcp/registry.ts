@@ -22,6 +22,8 @@ interface Live {
 const RETRY_AFTER_MS = 30_000;
 
 const live = new Map<string, Live>();
+/** Opens that are running, so one server is opened once, not once per caller. */
+const opening = new Map<string, Promise<Live>>();
 
 function toolInfo(server: McpServer, tool: McpToolDescription): McpToolInfo {
 	const schema = tool.inputSchema;
@@ -63,19 +65,31 @@ async function ensure(server: McpServer, refresh = false): Promise<Live | undefi
 		if (!current.failed && current.connection?.alive) return current;
 		if (current.failed && Date.now() - current.attemptedAt < RETRY_AFTER_MS) return current;
 	}
-	current?.connection?.close();
+	// An open that is already running is waited for instead of started again: a
+	// second stdio server would be a child process that nobody closes.
+	const running = opening.get(server.id);
+	if (running) return running;
+	const attempt = (async (): Promise<Live> => {
+		current?.connection?.close();
+		try {
+			const opened = await open(server);
+			live.set(server.id, opened);
+			return opened;
+		} catch (err) {
+			const failed: Live = {
+				tools: [],
+				failed: err instanceof Error ? err.message : String(err),
+				attemptedAt: Date.now()
+			};
+			live.set(server.id, failed);
+			return failed;
+		}
+	})();
+	opening.set(server.id, attempt);
 	try {
-		const opened = await open(server);
-		live.set(server.id, opened);
-		return opened;
-	} catch (err) {
-		const failed: Live = {
-			tools: [],
-			failed: err instanceof Error ? err.message : String(err),
-			attemptedAt: Date.now()
-		};
-		live.set(server.id, failed);
-		return failed;
+		return await attempt;
+	} finally {
+		opening.delete(server.id);
 	}
 }
 
