@@ -133,8 +133,11 @@ export class AppState {
 	 * Null means the provider cannot count, so the view keeps its estimate.
 	 */
 	contextExact = $state<number | null>(null);
-	pendingImages = $state<ImageRef[]>([]);
-	pendingDocuments = $state<PendingDocument[]>([]);
+	/**
+	 * Attachments waiting to send, kept per chat so that switching chats leaves them
+	 * where they belong instead of carrying them into the next one.
+	 */
+	pendingAttachments: Record<string, { images: ImageRef[]; documents: PendingDocument[] }> = $state({});
 	uploading = $state(false);
 	showSettings = $state(false);
 	showParams = $state(false);
@@ -408,6 +411,8 @@ export class AppState {
 	async deleteConversation(id: string): Promise<void> {
 		await api.deleteConversation(id);
 		this.conversations = this.conversations.filter((c) => c.id !== id);
+		// A chat that is gone cannot collect attachments for a later one.
+		delete this.pendingAttachments[id];
 		if (this.conversation?.id === id) {
 			if (this.conversations.length) await this.open(this.conversations[0].id);
 			else await this.newConversation();
@@ -819,6 +824,29 @@ export class AppState {
 		for (const id of ids) api.deleteImage(id).catch(() => {});
 	}
 
+	/** The chat the composer writes into, or '' while the boot still runs. */
+	get #pendingKey(): string {
+		return this.conversation?.id ?? '';
+	}
+
+	/** Images the next message of this chat carries. */
+	get pendingImages(): ImageRef[] {
+		return this.pendingAttachments[this.#pendingKey]?.images ?? [];
+	}
+
+	set pendingImages(images: ImageRef[]) {
+		this.pendingAttachments[this.#pendingKey] = { images, documents: this.pendingDocuments };
+	}
+
+	/** Attachments the next message of this chat carries. */
+	get pendingDocuments(): PendingDocument[] {
+		return this.pendingAttachments[this.#pendingKey]?.documents ?? [];
+	}
+
+	set pendingDocuments(documents: PendingDocument[]) {
+		this.pendingAttachments[this.#pendingKey] = { images: this.pendingImages, documents };
+	}
+
 	private turnBody() {
 		return {
 			conversationId: this.conversation?.id,
@@ -830,9 +858,11 @@ export class AppState {
 	/**
 	 * Sends a message. A turn that already owns the chat holds the message on the
 	 * server, so a follow up is never lost and no window has to guess the state.
+	 * The answer says whether the message left the composer, so a refusal that keeps
+	 * the typed text can keep it on screen.
 	 */
-	async send(text: string): Promise<void> {
-		if (!this.conversation) return;
+	async send(text: string): Promise<boolean> {
+		if (!this.conversation) return false;
 		const trimmed = text.trim();
 		const images = this.pendingImages;
 		const documents = this.pendingDocuments;
@@ -840,15 +870,15 @@ export class AppState {
 			...images,
 			...documents.filter((item) => item.sendImages).flatMap((item) => item.images)
 		];
-		if (!trimmed && !sentImages.length && !documents.length) return;
+		if (!trimmed && !sentImages.length && !documents.length) return false;
 		if (!this.provider) {
 			this.toast('error', 'Add a provider in Settings first');
 			this.showSettings = true;
-			return;
+			return false;
 		}
 		if (!this.model) {
 			this.toast('error', 'Pick a model first');
-			return;
+			return false;
 		}
 		this.pendingImages = [];
 		this.pendingDocuments = [];
@@ -860,6 +890,7 @@ export class AppState {
 			this.pendingImages = images;
 			this.pendingDocuments = documents;
 		}
+		return sent;
 	}
 
 	/**

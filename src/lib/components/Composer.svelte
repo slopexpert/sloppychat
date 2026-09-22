@@ -82,15 +82,24 @@
 	});
 
 	/**
-	 * Sending fills the `/slug` commands in first, so Enter never has two jobs:
-	 * the text that leaves is the text with every command replaced.
+	 * Sending fills the `/slug` commands in first, so Enter never has two jobs: the
+	 * text that leaves is the text with every command replaced. The box clears only
+	 * when the message went, because a refusal must not eat what the user typed.
 	 */
+	let sending = false;
 	function submit() {
-		if (!canSend) return;
+		if (!canSend || sending) return;
 		const value = expandCommands(text, app.prompts, app.promptVars());
-		text = '';
 		slash = null;
-		void app.send(value);
+		sending = true;
+		void app
+			.send(value)
+			.then((sent) => {
+				if (sent) text = '';
+			})
+			.finally(() => {
+				sending = false;
+			});
 	}
 
 	/** Reads the caret and decides whether a snippet menu belongs on screen. */
