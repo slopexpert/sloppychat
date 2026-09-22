@@ -61,6 +61,18 @@
 		});
 	});
 
+	// A file that just arrived wants a Send press next. Without this the keystroke
+	// lands on whatever held focus, such as the New chat button, and the file is left
+	// sitting in the box while an empty chat opens.
+	let pendingCount = 0;
+	$effect(() => {
+		const count = app.pendingDocuments.length + app.pendingImages.length;
+		const grew = count > pendingCount;
+		pendingCount = count;
+		if (!grew || !area || area === document.activeElement) return;
+		area.focus();
+	});
+
 	/**
 	 * Sending fills the `/slug` commands in first, so Enter never has two jobs:
 	 * the text that leaves is the text with every command replaced.

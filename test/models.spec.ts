@@ -211,6 +211,28 @@ describe('new chats', () => {
 		expect(state.conversation?.model).toBe('other-default');
 	});
 
+	it('keeps a chat that is already fresh instead of opening another', async () => {
+		server.conversations = [conversation('c1', { title: 'New chat', model: 'default-model' })];
+		const state = new AppState();
+		await state.init();
+		await settle();
+		server.created = [];
+		await state.newConversation();
+		expect(server.created).toHaveLength(0);
+		expect(state.conversation?.id).toBe('c1');
+		// A file waiting in the box belongs to the chat that is open, so it stays.
+		state.pendingDocuments = [
+			{ document: { id: 'd1', name: 'src/app.ts', pages: 0, chars: 12 }, images: [], sendImages: false }
+		];
+		await state.newConversation();
+		expect(server.created).toHaveLength(0);
+		state.pendingDocuments = [];
+		// A chat with a title of its own is a chat the reader wants to keep.
+		state.conversation = { ...state.conversation!, title: 'Notes on the parser' };
+		await state.newConversation();
+		expect(server.created).toHaveLength(1);
+	});
+
 	it('closes the drawer when a chat is picked on a narrow screen', async () => {
 		server.conversations = [conversation('c1', { model: 'default-model' })];
 		const state = new AppState();

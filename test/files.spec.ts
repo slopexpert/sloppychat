@@ -209,6 +209,23 @@ describe('the attachment routes', () => {
 		expect(missing.status).toBe(404);
 	});
 
+	it('stores a message that is only an attachment', async () => {
+		const messages = await import('../src/routes/api/conversations/[id]/messages/+server');
+		const conversation = store.createConversation({ title: 'Attachment only' });
+		store.saveDocument('d6', 'notes.md', 'text/plain', 0, '# Title\nbody');
+		const response = await messages.POST({
+			params: { id: conversation.id },
+			request: new Request('http://local/api/conversations/x/messages', {
+				method: 'POST',
+				body: JSON.stringify({ text: '', documents: [{ id: 'd6', name: 'notes.md', pages: 0, chars: 12 }] })
+			})
+		} as never);
+		expect(response.status).toBe(201);
+		const { message } = await response.json();
+		expect(message.text).toBe('');
+		expect(message.documents).toHaveLength(1);
+	});
+
 	it('keeps the line count when a message is stored', async () => {
 		const messages = await import('../src/routes/api/conversations/[id]/messages/+server');
 		const conversation = store.createConversation({ title: 'Attachments' });

@@ -259,6 +259,9 @@ export class AppState {
 	}
 
 	async newConversation(): Promise<void> {
+		// An untouched chat is already the new chat, so a second press keeps it rather
+		// than leaving another empty entry in the list.
+		if (this.fresh) return;
 		// A new chat inherits the provider and model that are in view.
 		const providerId = this.conversation?.providerId ?? this.provider?.id ?? null;
 		const model = this.conversation?.model ?? this.pickModel(providerId);
@@ -392,6 +395,19 @@ export class AppState {
 
 	async renameConversation(title: string): Promise<void> {
 		await this.patchConversation({ title });
+	}
+
+	/**
+	 * True when the chat in view holds nothing the reader could lose. A file waiting
+	 * in the box counts as a reason to stay: it belongs to the chat that is open.
+	 */
+	get fresh(): boolean {
+		return (
+			!!this.conversation &&
+			this.conversation.title === 'New chat' &&
+			!this.messages.length &&
+			!this.queued.length
+		);
 	}
 
 	/** Puts text into the message box as a quote, ready to add a comment under it. */
