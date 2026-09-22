@@ -1,7 +1,7 @@
 import type { RequestHandler } from './$types';
 import { getSettings, saveSettings } from '$lib/server/store';
 import { body } from '$lib/server/http';
-import type { Settings } from '$lib/shared/types';
+import { cleanSettings } from '$lib/shared/settings';
 
 export const GET = (() => {
 	return new Response(JSON.stringify(getSettings()), {
@@ -10,7 +10,9 @@ export const GET = (() => {
 }) satisfies RequestHandler;
 
 export const PUT = (async ({ request }) => {
-	const patch = await body<Partial<Settings>>(request);
+	// Every field is checked before it is written, because the code that reads the
+	// settings trusts the types it gets back.
+	const patch = cleanSettings(await body<unknown>(request));
 	// API keys for search arrive here, so never log the payload.
 	return new Response(JSON.stringify(saveSettings(patch)), {
 		headers: { 'content-type': 'application/json' }
