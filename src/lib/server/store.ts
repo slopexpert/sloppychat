@@ -101,8 +101,10 @@ export function updateProvider(id: string, patch: Partial<Provider>): Provider |
 }
 
 export function deleteProvider(id: string): void {
-	run('DELETE FROM providers WHERE id = ?', id);
-	run('UPDATE conversations SET provider_id = NULL WHERE provider_id = ?', id);
+	tx(() => {
+		run('DELETE FROM providers WHERE id = ?', id);
+		run('UPDATE conversations SET provider_id = NULL WHERE provider_id = ?', id);
+	});
 }
 
 /* ------------------------------------------------------------------ settings */
@@ -187,13 +189,13 @@ export function getConversation(id: string): Conversation | undefined {
 export function createConversation(input: Partial<Conversation> = {}): Conversation {
 	const id = newId();
 	const stamp = now();
-	const provider = input.providerId ? undefined : defaultProvider();
+	const provider = input.providerId && getProvider(input.providerId) ? undefined : defaultProvider();
 	run(
 		`INSERT INTO conversations (id, title, provider_id, model, system, params, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
 		id,
 		input.title ?? 'New chat',
-		input.providerId ?? provider?.id ?? null,
+		(input.providerId && getProvider(input.providerId) && input.providerId) || null,
 		input.model ?? provider?.defaultModel ?? null,
 		input.system ?? null,
 		JSON.stringify(input.params ?? {}),
@@ -207,16 +209,20 @@ export function updateConversation(id: string, patch: Partial<Conversation>): Co
 	const current = getConversation(id);
 	if (!current) return undefined;
 	const next = { ...current, ...patch };
+	// A provider or folder that is gone is no provider and no folder, so the chat
+	// goes back to the default provider and the plain list.
+	const providerId = next.providerId && getProvider(next.providerId) ? next.providerId : null;
+	const folderId = next.folderId && getFolder(next.folderId) ? next.folderId : null;
 	run(
 		`UPDATE conversations SET title = ?, provider_id = ?, model = ?, system = ?, params = ?,
 		 folder_id = ?, tags = ?, updated_at = ?
 		 WHERE id = ?`,
 		next.title,
-		next.providerId ?? null,
+		providerId,
 		next.model ?? null,
 		next.system ?? null,
 		JSON.stringify(next.params ?? {}),
-		next.folderId ?? null,
+		folderId,
 		JSON.stringify(normalizeTags(next.tags ?? [])),
 		now(),
 		id
@@ -310,29 +316,31 @@ export function queueMessage(input: {
 	images?: QueuedMessage['images'];
 	documents?: QueuedMessage['documents'];
 }): QueuedMessage {
-	const id = newId();
-	const seqRow = one(
-		'SELECT COALESCE(MAX(seq), 0) AS seq FROM queued_messages WHERE conversation_id = ?',
-		input.conversationId
-	);
-	const seq = typeof seqRow?.seq === 'number' ? seqRow.seq + 1 : 1;
-	run(
-		`INSERT INTO queued_messages (id, conversation_id, seq, text, images, documents, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		id,
-		input.conversationId,
-		seq,
-		input.text,
-		JSON.stringify(input.images ?? []),
-		JSON.stringify(input.documents ?? []),
-		now()
-	);
-	return {
-		id,
-		text: input.text,
-		images: input.images ?? [],
-		documents: input.documents ?? []
-	};
+	return tx(() => {
+		const id = newId();
+		const seqRow = one(
+			'SELECT COALESCE(MAX(seq), 0) AS seq FROM queued_messages WHERE conversation_id = ?',
+			input.conversationId
+		);
+		const seq = typeof seqRow?.seq === 'number' ? seqRow.seq + 1 : 1;
+		run(
+			`INSERT INTO queued_messages (id, conversation_id, seq, text, images, documents, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			id,
+			input.conversationId,
+			seq,
+			input.text,
+			JSON.stringify(input.images ?? []),
+			JSON.stringify(input.documents ?? []),
+			now()
+		);
+		return {
+			id,
+			text: input.text,
+			images: input.images ?? [],
+			documents: input.documents ?? []
+		};
+	});
 }
 
 /** Drops one waiting message. False means the row was not there. */
@@ -345,14 +353,16 @@ export function deleteQueued(conversationId: string, id: string): boolean {
 
 /** Takes the oldest waiting message out of the queue, or nothing when it is empty. */
 export function takeQueued(conversationId: string): QueuedMessage | undefined {
-	const row = one(
-		'SELECT * FROM queued_messages WHERE conversation_id = ? ORDER BY seq LIMIT 1',
-		conversationId
-	);
-	if (!row) return undefined;
-	const queued = mapQueued(row);
-	run('DELETE FROM queued_messages WHERE id = ?', queued.id);
-	return queued;
+	return tx(() => {
+		const row = one(
+			'SELECT * FROM queued_messages WHERE conversation_id = ? ORDER BY seq LIMIT 1',
+			conversationId
+		);
+		if (!row) return undefined;
+		const queued = mapQueued(row);
+		run('DELETE FROM queued_messages WHERE id = ?', queued.id);
+		return queued;
+	});
 }
 
 /** Empties the queue of a conversation, and says how many messages were dropped. */
@@ -405,16 +415,20 @@ export function renameFolder(id: string, name: string): Folder | undefined {
 
 /** Removes a folder. Its chats stay, and go back to the plain list. */
 export function deleteFolder(id: string): number {
-	const chats = all('SELECT id FROM conversations WHERE folder_id = ?', id).length;
-	run('UPDATE conversations SET folder_id = NULL WHERE folder_id = ?', id);
-	run('DELETE FROM folders WHERE id = ?', id);
-	return chats;
+	return tx(() => {
+		const chats = all('SELECT id FROM conversations WHERE folder_id = ?', id).length;
+		run('UPDATE conversations SET folder_id = NULL WHERE folder_id = ?', id);
+		run('DELETE FROM folders WHERE id = ?', id);
+		return chats;
+	});
 }
 
 /** Puts a chat in a folder, or back in the plain list when folderId is null. */
 export function moveConversation(id: string, folderId: string | null): Conversation | undefined {
 	if (!getConversation(id)) return undefined;
-	run('UPDATE conversations SET folder_id = ? WHERE id = ?', folderId, id);
+	// A folder the user no longer has cannot hold a chat.
+	const held = folderId && getFolder(folderId) ? folderId : null;
+	run('UPDATE conversations SET folder_id = ? WHERE id = ?', held, id);
 	return getConversation(id);
 }
 
@@ -423,13 +437,15 @@ export function moveConversation(id: string, folderId: string | null): Conversat
  * on, which is how a folder is made without a dialog.
  */
 export function mergeIntoFolder(chatId: string, ontoChatId: string): Folder | undefined {
-	const dragged = getConversation(chatId);
-	const target = getConversation(ontoChatId);
-	if (!dragged || !target || dragged.id === target.id) return undefined;
-	const folder = target.folderId ? getFolder(target.folderId) : createFolder(target.title);
-	if (!folder) return undefined;
-	run('UPDATE conversations SET folder_id = ? WHERE id IN (?, ?)', folder.id, dragged.id, target.id);
-	return folder;
+	return tx(() => {
+		const dragged = getConversation(chatId);
+		const target = getConversation(ontoChatId);
+		if (!dragged || !target || dragged.id === target.id) return undefined;
+		const folder = target.folderId ? getFolder(target.folderId) : createFolder(target.title);
+		if (!folder) return undefined;
+		run('UPDATE conversations SET folder_id = ? WHERE id IN (?, ?)', folder.id, dragged.id, target.id);
+		return folder;
+	});
 }
 
 export function setTags(id: string, tags: string[]): Conversation | undefined {
@@ -777,35 +793,37 @@ interface InsertMessage {
 }
 
 export function appendMessage(input: InsertMessage): Message {
-	const id = newId();
-	// A new message hangs off the end of the line the reader is on.
-	const parent = getConversation(input.conversationId)?.activeLeafId ?? null;
-	const seqRow = one('SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE conversation_id = ?', input.conversationId);
-	const seq = typeof seqRow?.seq === 'number' ? seqRow.seq + 1 : 1;
-	run(
-		`INSERT INTO messages (id, conversation_id, seq, parent_id, role, text, reasoning, images, documents,
-		 tool_calls, tool_call_id, tool_name, is_error, model, usage, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
-		id,
-		input.conversationId,
-		seq,
-		parent,
-		input.role,
-		input.text ?? '',
-		input.reasoning ?? null,
-		JSON.stringify(input.images ?? []),
-		JSON.stringify(input.documents ?? []),
-		input.toolCalls ? JSON.stringify(input.toolCalls) : null,
-		input.toolCallId ?? null,
-		input.toolName ?? null,
-		input.isError ? 1 : 0,
-		input.model ?? null,
-		now()
-	);
-	// The new message is the end of the line now.
-	run('UPDATE conversations SET active_leaf_id = ? WHERE id = ?', id, input.conversationId);
-	touchConversation(input.conversationId);
-	return getMessage(id)!;
+	return tx(() => {
+		const id = newId();
+		// A new message hangs off the end of the line the reader is on.
+		const parent = getConversation(input.conversationId)?.activeLeafId ?? null;
+		const seqRow = one('SELECT COALESCE(MAX(seq), 0) AS seq FROM messages WHERE conversation_id = ?', input.conversationId);
+		const seq = typeof seqRow?.seq === 'number' ? seqRow.seq + 1 : 1;
+		run(
+			`INSERT INTO messages (id, conversation_id, seq, parent_id, role, text, reasoning, images, documents,
+			 tool_calls, tool_call_id, tool_name, is_error, model, usage, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)`,
+			id,
+			input.conversationId,
+			seq,
+			parent,
+			input.role,
+			input.text ?? '',
+			input.reasoning ?? null,
+			JSON.stringify(input.images ?? []),
+			JSON.stringify(input.documents ?? []),
+			input.toolCalls ? JSON.stringify(input.toolCalls) : null,
+			input.toolCallId ?? null,
+			input.toolName ?? null,
+			input.isError ? 1 : 0,
+			input.model ?? null,
+			now()
+		);
+		// The new message is the end of the line now.
+		run('UPDATE conversations SET active_leaf_id = ? WHERE id = ?', id, input.conversationId);
+		touchConversation(input.conversationId);
+		return getMessage(id)!;
+	});
 }
 
 /**
@@ -879,24 +897,26 @@ export function finalizeMessage(
  * the parent when the line it was on is gone.
  */
 export function deleteMessagesFrom(conversationId: string, messageId: string): number {
-	const root = one('SELECT id, parent_id FROM messages WHERE id = ? AND conversation_id = ?', messageId, conversationId);
-	if (!root) return 0;
-	const branch = all(
-		`WITH RECURSIVE sub(id) AS (
-			SELECT id FROM messages WHERE id = ?
-			UNION ALL
-			SELECT m.id FROM messages m JOIN sub s ON m.parent_id = s.id
-		)
-		SELECT id FROM sub`,
-		messageId
-	).map((row) => str(row.id));
-	const conversation = getConversation(conversationId);
-	if (conversation?.activeLeafId && branch.includes(conversation.activeLeafId)) {
-		run('UPDATE conversations SET active_leaf_id = ? WHERE id = ?', text(root.parent_id), conversationId);
-	}
-	const placeholders = branch.map(() => '?').join(', ');
-	run(`DELETE FROM messages WHERE id IN (${placeholders})`, ...branch);
-	touchConversation(conversationId);
-	return branch.length;
+	return tx(() => {
+		const root = one('SELECT id, parent_id FROM messages WHERE id = ? AND conversation_id = ?', messageId, conversationId);
+		if (!root) return 0;
+		const branch = all(
+			`WITH RECURSIVE sub(id) AS (
+				SELECT id FROM messages WHERE id = ?
+				UNION ALL
+				SELECT m.id FROM messages m JOIN sub s ON m.parent_id = s.id
+			)
+			SELECT id FROM sub`,
+			messageId
+		).map((row) => str(row.id));
+		const conversation = getConversation(conversationId);
+		if (conversation?.activeLeafId && branch.includes(conversation.activeLeafId)) {
+			run('UPDATE conversations SET active_leaf_id = ? WHERE id = ?', text(root.parent_id), conversationId);
+		}
+		const placeholders = branch.map(() => '?').join(', ');
+		run(`DELETE FROM messages WHERE id IN (${placeholders})`, ...branch);
+		touchConversation(conversationId);
+		return branch.length;
+	});
 }
 
