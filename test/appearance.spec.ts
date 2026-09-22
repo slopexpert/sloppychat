@@ -253,8 +253,20 @@ describe('palettes', () => {
 			const block = themeBlock(id);
 			expect(token(block, 'accent'), `${id} accent`).toBe('#eb6f92');
 			expect(token(block, 'secondary'), `${id} secondary`).toBe('#c4a7e7');
+			// Inline code takes the palette gold, a lemon tone against the accent.
+			expect(token(block, 'code'), `${id} inline code`).toBe('#f6c177');
 			// The error colour has to stay distinct from the accent.
 			expect(token(block, 'danger'), `${id} danger`).not.toBe(token(block, 'accent'));
+		}
+	});
+
+	/** A palette may pick its own inline code tone; when it does, it must read. */
+	it('keeps inline code readable where a palette sets its own tone', () => {
+		for (const id of variantIds()) {
+			const block = themeBlock(id);
+			const code = token(block, 'code');
+			if (!code) continue;
+			expect(contrast(code, token(block, 'raised')!), `${id} inline code`).toBeGreaterThanOrEqual(4.5);
 		}
 	});
 

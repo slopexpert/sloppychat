@@ -236,6 +236,11 @@ Catppuccin is Latte or Mocha, Rosé Pine is Dawn or the main palette, Gruvbox an
 have both too. Families with a single variant, such as Nord, OLED and Tokyo Night, keep
 their own scheme. There is no light or dark setting to manage.
 
+A family may also pick its own tone for inline code with the `--code` token, which falls
+back to the accent so untouched palettes keep today's look. Rosé Pine and Rosé Pine Moon set
+it to their gold, which reads as lemon against the pink accent; Dawn sets a darker gold,
+because its own gold only reaches 1.9:1 on that pale background.
+
 Two details keep the first paint clean:
 
 - A pre-paint script in `src/app.html` resolves the family and the system scheme to a

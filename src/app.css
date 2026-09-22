@@ -15,6 +15,7 @@
 	--color-accent-fg: var(--accent-fg);
 	--color-accent-soft: var(--accent-soft);
 	--color-secondary: var(--secondary);
+	--color-code: var(--code);
 	--color-danger: var(--danger);
 	--color-ok: var(--ok);
 	/* Appearance settings drive these, so every utility follows the choice. */
@@ -52,6 +53,8 @@
 	--accent-fg: #ffffff;
 	/* Italic text tone: follows the accent, stays readable in both modes. */
 	--secondary: color-mix(in oklab, var(--accent) 45%, var(--muted));
+	/* Inline code tone: follows the accent, unless a palette picks its own. */
+	--code: var(--accent);
 	color-scheme: light;
 }
 
@@ -116,7 +119,7 @@
 	--accent-fg: #0b0b0d;
 }
 
-/* Rose Pine, https://rose-pine.org. Love is the accent, iris the italic tone. */
+/* Rose Pine, https://rose-pine.org. Love is the accent, iris the italic tone, gold the inline code. */
 [data-theme='rose-pine'] {
 	--bg: #191724;
 	--surface: #1f1d2e;
@@ -128,10 +131,11 @@
 	--accent: #eb6f92;
 	--accent-fg: #191724;
 	--secondary: #c4a7e7;
+	--code: #f6c177;
 	--danger: #f6c177;
 	--ok: #9ccfd8;
 }
-/* Rose Pine Moon, https://rose-pine.org. Love is the accent, iris the italic tone. */
+/* Rose Pine Moon, https://rose-pine.org. Love is the accent, iris the italic tone, gold the inline code. */
 [data-theme='rose-pine-moon'] {
 	--bg: #232136;
 	--surface: #2a273f;
@@ -143,6 +147,7 @@
 	--accent: #eb6f92;
 	--accent-fg: #232136;
 	--secondary: #c4a7e7;
+	--code: #f6c177;
 	--danger: #f6c177;
 	--ok: #9ccfd8;
 }
@@ -157,6 +162,9 @@
 	--faint: #9893a5;
 	--accent: #286983;
 	--accent-fg: #faf4ed;
+	/* The palette gold is only 1.9:1 on this background, so inline code takes a darker
+	   gold and stays readable. */
+	--code: #7d5c10;
 	--danger: #b4637a;
 	--ok: #56949f;
 }
@@ -569,7 +577,7 @@ button:disabled * {
 	@apply text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent;
 }
 .md code:not(pre code) {
-	@apply rounded-sm bg-raised px-1 py-0.5 font-mono text-[0.85em] text-accent;
+	@apply rounded-sm bg-raised px-1 py-0.5 font-mono text-[0.85em] text-code;
 }
 .md pre {
 	@apply overflow-x-auto rounded-card border border-line bg-raised p-3 text-[0.8125rem];
