@@ -233,6 +233,41 @@ describe('new chats', () => {
 		expect(server.created).toHaveLength(1);
 	});
 
+	it('asks the composer for the keyboard, fresh chat or new one', async () => {
+		server.conversations = [conversation('c1', { title: 'New chat', model: 'default-model' })];
+		const state = new AppState();
+		await state.init();
+		await settle();
+		server.created = [];
+		// The chat in view is untouched, so no second entry opens and the box is asked for.
+		state.focusComposer = false;
+		await state.newConversation();
+		expect(state.focusComposer).toBe(true);
+		expect(server.created).toHaveLength(0);
+		// A chat with a title of its own is kept, and a new chat opens in its place.
+		state.focusComposer = false;
+		state.conversation = { ...state.conversation!, title: 'Notes on the parser' };
+		await state.newConversation();
+		expect(server.created).toHaveLength(1);
+		expect(state.focusComposer).toBe(true);
+	});
+
+	it('gets the drawer out of the way when New chat is pressed on a narrow screen', async () => {
+		server.conversations = [conversation('c1', { title: 'Notes', model: 'default-model' })];
+		const state = new AppState();
+		await state.init();
+		await settle();
+		state.narrow = true;
+		state.sidebarOpen = true;
+		await state.newConversation();
+		expect(state.sidebarOpen).toBe(false);
+		// The chat that opens is fresh, so the next press takes the early path and
+		// closes the drawer all the same.
+		state.sidebarOpen = true;
+		await state.newConversation();
+		expect(state.sidebarOpen).toBe(false);
+	});
+
 	it('closes the drawer when a chat is picked on a narrow screen', async () => {
 		server.conversations = [conversation('c1', { model: 'default-model' })];
 		const state = new AppState();

@@ -105,6 +105,8 @@ npm start            # PORT=3000 by default
   have. Adding or editing a provider also refreshes its list
 - A new chat starts with the provider and model that are already in view, so you keep
   working with the same model
+- Pressing New chat puts the caret in the message box, and closes the chat drawer on a
+  narrow screen, so typing starts without another click
 - A chat with no model picks, in order: the model last used with that provider, the
   provider's default model, then the first model the provider reports. The choice is
   saved on the chat straight away, so sending works without touching the picker

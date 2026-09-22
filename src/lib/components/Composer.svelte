@@ -61,6 +61,14 @@
 		});
 	});
 
+	// A new chat asks for the keyboard, because a click leaves focus on the button
+	// that opened it. The frame wait lets the empty conversation draw first.
+	$effect(() => {
+		if (!app.focusComposer) return;
+		app.focusComposer = false;
+		requestAnimationFrame(() => area?.focus());
+	});
+
 	// A file that just arrived wants a Send press next. Without this the keystroke
 	// lands on whatever held focus, such as the New chat button, and the file is left
 	// sitting in the box while an empty chat opens.

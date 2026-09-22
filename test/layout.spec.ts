@@ -100,3 +100,16 @@ describe('scroll containers', () => {
 		expect(appCss).toMatch(/\.skip-link\s*\{[^}]*overflow:\s*visible|pointer-events:\s*none/);
 	});
 });
+
+/** Only a browser can show the caret landing in the box, so the wiring is checked here. */
+describe('new chat focus', () => {
+	const composer = readFileSync('src/lib/components/Composer.svelte', 'utf8');
+
+	it('takes the focus request that a new chat raises', () => {
+		// The request is read once and cleared, so a redraw cannot steal the caret.
+		expect(composer).toContain('if (!app.focusComposer) return;');
+		expect(composer).toContain('app.focusComposer = false;');
+		// The field itself is focused, one frame later, after the empty chat draws.
+		expect(composer).toContain('requestAnimationFrame(() => area?.focus());');
+	});
+});

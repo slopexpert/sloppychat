@@ -135,6 +135,11 @@ export class AppState {
 	 * and sets this back to nothing, so a quote is never applied twice.
 	 */
 	pendingQuote = $state<string | null>(null);
+	/**
+	 * Set when a new chat opens, because the point of one is to type in it. The
+	 * composer takes it once and sets this back, so a request is never applied twice.
+	 */
+	focusComposer = $state(false);
 	sidebarOpen = $state(true);
 	/** True on a narrow viewport, where the chat list becomes a drawer. */
 	narrow = $state(false);
@@ -259,9 +264,14 @@ export class AppState {
 	}
 
 	async newConversation(): Promise<void> {
+		// Ask for the keyboard before anything else: a click leaves focus on the button.
+		this.focusComposer = true;
 		// An untouched chat is already the new chat, so a second press keeps it rather
-		// than leaving another empty entry in the list.
-		if (this.fresh) return;
+		// than leaving another empty entry in the list. The drawer is still in the way.
+		if (this.fresh) {
+			if (this.narrow) this.closeSidebar();
+			return;
+		}
 		// A new chat inherits the provider and model that are in view.
 		const providerId = this.conversation?.providerId ?? this.provider?.id ?? null;
 		const model = this.conversation?.model ?? this.pickModel(providerId);
@@ -274,6 +284,8 @@ export class AppState {
 		this.messages = [];
 		this.toolProgress = {};
 		this.#rememberConversation(conversation.id);
+		// The list has done its job, as when a chat is picked out of it.
+		if (this.narrow) this.closeSidebar();
 		// Discovery may still be running, in which case the model lands later.
 		if (!conversation.model) void this.ensureModel();
 	}
