@@ -25,6 +25,14 @@ const PROBE_TIMEOUT_MS = 2500;
 /** Answers are kept per provider and address, so a changed address probes again. */
 const cache = new Map<string, TokenSupport>();
 
+/** What the app does when the provider cannot count anything. */
+const NO_SUPPORT: TokenSupport = {
+	counter: 'none',
+	tokenIds: false,
+	perToken: false,
+	continueFinal: false
+};
+
 /** The server root, without the /v1 suffix the chat endpoints use. */
 export function serverRoot(baseUrl: string): string {
 	return baseUrl
@@ -33,7 +41,17 @@ export function serverRoot(baseUrl: string): string {
 		.replace(/\/v1$/, '');
 }
 
-async function fetchJson(url: string, provider: Provider, init: RequestInit = {}): Promise<unknown> {
+/**
+ * Asks one thing of the server. `seen` records that the server answered at all,
+ * which is not the same as an answer that helped: a plain server that says no to
+ * every probe is present, and a server that is down is not.
+ */
+async function fetchJson(
+	url: string,
+	provider: Provider,
+	seen: { reached: boolean },
+	init: RequestInit = {}
+): Promise<unknown> {
 	const controller = new AbortController();
 	const timer = setTimeout(() => controller.abort(), PROBE_TIMEOUT_MS);
 	try {
@@ -42,6 +60,7 @@ async function fetchJson(url: string, provider: Provider, init: RequestInit = {}
 			headers: { ...authHeaders(provider), ...(init.headers ?? {}) },
 			signal: controller.signal
 		});
+		seen.reached = true;
 		if (!res.ok) return undefined;
 		return (await res.json()) as unknown;
 	} catch {
@@ -61,22 +80,28 @@ function tokensOf(body: unknown): number[] | undefined {
 	);
 }
 
-/** What the provider can do. The answer is cached, unless `refresh` is true. */
+/**
+ * What the provider can do. The answer is cached, unless `refresh` is true. A
+ * provider that did not answer is not a provider without support, so that answer
+ * is not kept: the next turn asks again instead of living with it.
+ */
 export async function tokenSupport(provider: Provider, refresh = false): Promise<TokenSupport> {
 	const key = `${provider.id} ${provider.baseUrl}`;
 	if (!refresh) {
 		const hit = cache.get(key);
 		if (hit) return hit;
 	}
-	const support = await probe(provider);
-	cache.set(key, support);
-	return support;
+	const probed = await probe(provider);
+	if (!probed) return NO_SUPPORT;
+	cache.set(key, probed);
+	return probed;
 }
 
-async function probe(provider: Provider): Promise<TokenSupport> {
+async function probe(provider: Provider): Promise<TokenSupport | undefined> {
+	const seen = { reached: false };
 	const root = serverRoot(provider.baseUrl);
 	// llama.cpp answers GET /props with the settings of the loaded model.
-	const props = (await fetchJson(`${root}/props`, provider)) as Record<string, unknown> | undefined;
+	const props = (await fetchJson(`${root}/props`, provider, seen)) as Record<string, unknown> | undefined;
 	const settings =
 		props && typeof props.default_generation_settings === 'object'
 			? (props.default_generation_settings as Record<string, unknown>)
@@ -94,18 +119,23 @@ async function probe(provider: Provider): Promise<TokenSupport> {
 	}
 	// vLLM answers POST /tokenize, reports the prompt on the first chunk, and can
 	// continue a partial answer with continue_final_message.
-	if ((await countText(provider, 'count')) !== undefined) {
+	if ((await countText(provider, 'count', seen)) !== undefined) {
 		return { counter: 'vllm', tokenIds: true, perToken: false, continueFinal: true };
 	}
-	return { counter: 'none', tokenIds: false, perToken: false, continueFinal: false };
+	// Nothing was heard at all: say nothing rather than remember the wrong thing.
+	return seen.reached ? NO_SUPPORT : undefined;
 }
 
 /** Counts one piece of text, in the shapes the two servers accept. */
-async function countText(provider: Provider, text: string): Promise<number | undefined> {
+async function countText(
+	provider: Provider,
+	text: string,
+	seen: { reached: boolean } = { reached: false }
+): Promise<number | undefined> {
 	const root = serverRoot(provider.baseUrl);
 	const bodies: Record<string, unknown>[] = [{ content: text }, { model: provider.defaultModel ?? '', prompt: text }];
 	for (const body of bodies) {
-		const answer = await fetchJson(`${root}/tokenize`, provider, {
+		const answer = await fetchJson(`${root}/tokenize`, provider, seen, {
 			method: 'POST',
 			body: JSON.stringify(body)
 		});
@@ -135,7 +165,7 @@ export async function countPrompt(provider: Provider, messages: unknown[]): Prom
 	const support = await tokenSupport(provider);
 	if (support.counter !== 'llamacpp') return undefined;
 	const root = serverRoot(provider.baseUrl);
-	const rendered = (await fetchJson(`${root}/apply-template`, provider, {
+	const rendered = (await fetchJson(`${root}/apply-template`, provider, { reached: false }, {
 		method: 'POST',
 		body: JSON.stringify({ messages })
 	})) as Record<string, unknown> | undefined;
