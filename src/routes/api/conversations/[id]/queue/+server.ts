@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
+import { isTurnRunning } from '$lib/server/hub';
 import { getConversation, queueMessage } from '$lib/server/store';
 import type { DocumentRef, ImageRef } from '$lib/shared/types';
 
@@ -11,6 +12,8 @@ import type { DocumentRef, ImageRef } from '$lib/shared/types';
 
 export const POST = (async ({ params, request }) => {
 	if (!getConversation(params.id)) return bad('Conversation not found', 404);
+	// A queue is a wait for a turn, so an idle chat has nothing to wait for.
+	if (!isTurnRunning(params.id)) return bad('No turn runs for this chat', 409);
 	const input = await body<{ text?: string; images?: ImageRef[]; documents?: DocumentRef[] }>(request);
 	const text = (input.text ?? '').trim();
 	const images = Array.isArray(input.images) ? input.images.filter((image) => image?.id) : [];

@@ -2,10 +2,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Conversation, QueuedMessage } from '$lib/shared/types';
 
 /**
- * The queue lives on the server now. The client posts a follow up to it while a
- * turn runs, draws the queue from the conversation payload, and drops an entry
- * that the user removes. The api module is mocked, so the test drives the state
- * machine directly and each turn stays open until the test releases it.
+ * The queue lives on the server, and the server also decides where a new
+ * message goes: straight into the history when the chat is idle, into the queue
+ * while a turn owns it. The api module is mocked with that rule, so the test
+ * drives the state machine directly and each turn stays open until released.
  */
 
 const calls = {
@@ -18,6 +18,8 @@ const calls = {
 /** The queue the mocked conversation payload reports. */
 let queued: QueuedMessage[] = [];
 let releaseStream: (() => void) | undefined;
+/** True while a mocked turn stream is open, which is what makes a message wait. */
+let turnOpen = false;
 
 vi.mock('$lib/client/api', () => {
 	class ApiError extends Error {
@@ -31,23 +33,24 @@ vi.mock('$lib/client/api', () => {
 	return {
 		ApiError,
 		api: {
-			queueMessage: vi.fn(async (_id: string, input: { text: string }) => {
-				calls.queued.push(input.text);
-				const item: QueuedMessage = {
-					id: `q${calls.queued.length}`,
-					text: input.text,
-					images: [],
-					documents: []
-				};
-				queued = [...queued, item];
-				return { queued: item };
-			}),
 			deleteQueued: vi.fn(async (_id: string, id: string) => {
 				calls.removed.push(id);
 				queued = queued.filter((item) => item.id !== id);
 				return { ok: true as const };
 			}),
+			// What the messages route does: a running turn holds the message.
 			addMessage: vi.fn(async (_id: string, input: { text: string }) => {
+				if (turnOpen) {
+					calls.queued.push(input.text);
+					const item: QueuedMessage = {
+						id: `q${calls.queued.length}`,
+						text: input.text,
+						images: [],
+						documents: []
+					};
+					queued = [...queued, item];
+					return { queued: item };
+				}
 				calls.added.push(input.text);
 				return { message: { id: `m${calls.added.length}`, conversationId: 'c1', role: 'user', text: input.text, images: [], createdAt: new Date(0).toISOString() } };
 			}),
@@ -61,6 +64,7 @@ vi.mock('$lib/client/api', () => {
 			async (url: string, _body: unknown, _signal: AbortSignal, onEvent: (event: never) => void) => {
 				calls.streams.push(url);
 				const id = `a${calls.streams.length}`;
+				turnOpen = true;
 				onEvent({ type: 'start', messageId: id } as never);
 				onEvent({ type: 'text', text: 'partial' } as never);
 				// The turn stays open until the test releases it, so a follow up can
@@ -68,6 +72,7 @@ vi.mock('$lib/client/api', () => {
 				await new Promise<void>((resolve) => {
 					releaseStream = resolve;
 				});
+				turnOpen = false;
 				onEvent({ type: 'done', finishReason: 'stop', messageId: id } as never);
 			}
 		),
@@ -92,7 +97,6 @@ function conversation(): Conversation {
 const { AppState } = await import('$lib/client/state.svelte');
 const { api } = await import('$lib/client/api');
 const stopTurn = api.stopTurn as unknown as ReturnType<typeof vi.fn>;
-const queueMessage = api.queueMessage as unknown as ReturnType<typeof vi.fn>;
 
 function freshState() {
 	const state = new AppState();
@@ -131,9 +135,9 @@ beforeEach(() => {
 	calls.streams = [];
 	calls.added = [];
 	queued = [];
+	turnOpen = false;
 	releaseStream = undefined;
 	stopTurn.mockClear();
-	queueMessage.mockClear();
 });
 
 describe('the follow up queue on the server', () => {
@@ -147,6 +151,8 @@ describe('the follow up queue on the server', () => {
 		expect(calls.queued).toEqual(['follow up']);
 		expect(calls.added, 'a waiting message does not join the history yet').toEqual(['first question']);
 		expect(state.queued.map((item) => item.text)).toEqual(['follow up']);
+		await waitForStreams(1);
+		expect(calls.streams, 'the follow up started no second turn').toHaveLength(1);
 
 		releaseStream?.();
 		await first;
@@ -182,8 +188,21 @@ describe('the follow up queue on the server', () => {
 		expect(state.queued).toHaveLength(1);
 
 		state.stop();
+		await tick();
 
 		expect(stopTurn).toHaveBeenCalledWith('c1');
 		expect(state.queued).toEqual([]);
+	});
+
+	it('shows the waiting messages again when no turn was running', async () => {
+		const state = freshState();
+		queued = [{ id: 'q1', text: 'waits for a turn', images: [], documents: [] }];
+		await state.refreshMessages();
+		stopTurn.mockResolvedValueOnce({ stopped: false });
+
+		state.stop();
+		await tick();
+
+		expect(state.queued.map((item) => item.text)).toEqual(['waits for a turn']);
 	});
 });

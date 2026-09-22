@@ -816,8 +816,8 @@ export class AppState {
 	}
 
 	/**
-	 * Sends a message. While a turn is still streaming the message is queued and
-	 * sent as soon as the current turn finishes, so a follow up is never lost.
+	 * Sends a message. A turn that already owns the chat holds the message on the
+	 * server, so a follow up is never lost and no window has to guess the state.
 	 */
 	async send(text: string): Promise<void> {
 		if (!this.conversation) return;
@@ -840,20 +840,8 @@ export class AppState {
 		}
 		this.pendingImages = [];
 		this.pendingDocuments = [];
-		if (this.running) {
-			// The server holds the queue, so a reload or a second window shows it.
-			try {
-				await api.queueMessage(this.conversation.id, {
-					text: trimmed,
-					images: sentImages,
-					documents: documents.map((item) => item.document)
-				});
-				await this.refreshMessages();
-			} catch (err) {
-				this.toast('error', errorText(err));
-			}
-			return;
-		}
+		// The server decides whether the message joins the history now or waits for
+		// the turn in flight, so a page that is out of date still gets it right.
 		const sent = await this.dispatch(trimmed, sentImages, documents.map((item) => item.document));
 		if (!sent) {
 			// Put the attachments back so the user can retry.
@@ -862,18 +850,28 @@ export class AppState {
 		}
 	}
 
-	/** Stores a user message and runs the assistant turn for it. */
+	/**
+	 * Stores a user message and runs the assistant turn for it. The server can
+	 * hold the message instead, when a turn already owns the chat.
+	 */
 	private async dispatch(text: string, images: ImageRef[], documents: DocumentRef[]): Promise<boolean> {
 		if (!this.conversation) return false;
 		// Whatever model actually runs counts as the last used one.
 		this.rememberModel(this.model);
+		let held = false;
 		try {
-			const { message } = await api.addMessage(this.conversation.id, { text, images, documents });
-			this.messages = [...this.messages, message];
+			const answer = await api.addMessage(this.conversation.id, { text, images, documents });
+			held = !answer.message;
+			if (!held) this.messages = [...this.messages, answer.message!];
 			// The prompt for the next turn just grew, so count it again.
 			void this.refreshContextExact();
 			await this.refreshConversations();
 			this.conversation = this.conversations.find((c) => c.id === this.conversation?.id) ?? this.conversation;
+			if (held) {
+				// The message waits in the queue of the turn in flight, which draws it.
+				await this.refreshMessages();
+				return true;
+			}
 		} catch (err) {
 			this.toast('error', errorText(err));
 			return false;
@@ -924,11 +922,20 @@ export class AppState {
 	stop(): void {
 		const conversationId = this.conversation?.id;
 		this.detach();
-		if (conversationId) void api.stopTurn(conversationId).catch(() => {});
-		if (this.queued.length) {
-			this.queued = [];
-			this.toast('info', 'Stopped, queued messages dropped');
-		}
+		if (!conversationId) return;
+		void api
+			.stopTurn(conversationId)
+			.then((answer) => {
+				if (!answer.stopped) {
+					// Nothing ran, so the server kept the waiting messages: draw them again.
+					return this.refreshMessages();
+				}
+				// Stop is the user's decision, so the queue went with the turn.
+				const dropped = this.queued.length;
+				this.queued = [];
+				if (dropped) this.toast('info', 'Stopped, queued messages dropped');
+			})
+			.catch(() => {});
 	}
 
 	/** One stream per page: a second attach would double every delta it receives. */

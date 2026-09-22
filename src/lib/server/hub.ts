@@ -35,10 +35,12 @@ function logTurnFailure(conversationId: string, err: unknown): void {
 
 /** Stops the running turn for a conversation, and drops its waiting messages. */
 export function stopTurn(conversationId: string): boolean {
-	// Stop is the user's decision, so the queue goes with the turn.
-	clearQueued(conversationId);
+	// Only a turn of its own takes the queue with it, so a stop that finds no turn
+	// leaves the messages that wait for a turn to come.
 	const turn = turns.get(conversationId);
 	if (!turn) return false;
+	// Stop is the user's decision, so the queue goes with the turn.
+	clearQueued(conversationId);
 	turn.controller.abort();
 	return true;
 }

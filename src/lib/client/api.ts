@@ -123,20 +123,16 @@ export const api = {
 			body: JSON.stringify({ messageId, exact })
 		}),
 
-	addMessage: (conversationId: string, input: { text: string; images?: ImageRef[]; documents?: DocumentRef[] }) =>
-		request<{ message: Message }>(`/api/conversations/${conversationId}/messages`, {
-			method: 'POST',
-			body: JSON.stringify(input)
-		}),
-	/** Holds a message until the turn in flight finishes. */
-	queueMessage: (
+	/** 201 adds the message, 202 holds it until the turn in flight ends. */
+	addMessage: (
 		conversationId: string,
 		input: { text: string; images?: ImageRef[]; documents?: DocumentRef[] }
 	) =>
-		request<{ queued: QueuedMessage }>(`/api/conversations/${conversationId}/queue`, {
-			method: 'POST',
-			body: JSON.stringify(input)
-		}),
+		request<{ message?: Message; queued?: QueuedMessage }>(
+			`/api/conversations/${conversationId}/messages`,
+			{ method: 'POST', body: JSON.stringify(input) }
+		),
+
 	deleteQueued: (conversationId: string, id: string) =>
 		request<{ ok: true }>(`/api/conversations/${conversationId}/queue/${id}`, { method: 'DELETE' }),
 
