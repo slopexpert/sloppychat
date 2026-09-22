@@ -284,6 +284,31 @@ function readDisplayMath(
 	return undefined;
 }
 
+/** Environments a model writes on their own lines, which are display math. */
+const DISPLAY_ENV =
+	/^\s*\\begin\{(align\*?|alignat\*?|gather\*?|equation\*?|eqnarray\*?|multline\*?|split|aligned|alignedat|cases|smallmatrix|bmatrix|Bmatrix|Vmatrix|vmatrix|pmatrix|matrix)\}\s*$/;
+
+/**
+ * Reads a display environment that spans whole lines. Without this, markdown gets the
+ * body and turns an underscore into emphasis in the middle of a formula. Returns
+ * undefined while the closing line has not arrived, so a stream stays readable.
+ */
+function readEnvironment(
+	lines: string[],
+	index: number
+): { tex: string; next: number } | undefined {
+	const opener = (lines[index] ?? '').match(DISPLAY_ENV);
+	if (!opener) return undefined;
+	const closer = new RegExp(`^\\s*\\\\end\\{${(opener[1] ?? '').replace('*', '\\*')}\\}\\s*$`);
+	const body: string[] = [lines[index] ?? ''];
+	for (let at = index + 1; at < lines.length; at++) {
+		const line = lines[at] ?? '';
+		body.push(line);
+		if (closer.test(line)) return { tex: body.join('\n').trim(), next: at + 1 };
+	}
+	return undefined;
+}
+
 /** Renders a markdown string to HTML. Safe for partial (streaming) input. */
 export function renderMarkdown(input: string, options: RenderOptions = {}): string {
 	const lines = input.replace(/\r\n?/g, '\n').split('\n');
@@ -294,6 +319,7 @@ export function renderMarkdown(input: string, options: RenderOptions = {}): stri
 		FENCE.test(line) ||
 		line.trimStart().startsWith('$$') ||
 		line.trimStart().startsWith('\\[') ||
+		DISPLAY_ENV.test(line) ||
 		HEADING.test(line) ||
 		HR.test(line) ||
 		QUOTE.test(line) ||
@@ -316,6 +342,18 @@ export function renderMarkdown(input: string, options: RenderOptions = {}): stri
 			if (mathHtml) {
 				out.push(mathHtml);
 				index = display.next;
+				continue;
+			}
+		}
+
+		// An environment on its own lines is display math: the body must never reach
+		// the markdown rules, which would eat underscores and ampersands.
+		const environment = readEnvironment(lines, index);
+		if (environment) {
+			const envHtml = renderMathBlock(environment.tex, true);
+			if (envHtml) {
+				out.push(envHtml);
+				index = environment.next;
 				continue;
 			}
 		}

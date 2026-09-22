@@ -34,9 +34,13 @@ Single user chat UI for any OpenAI compatible endpoint. SvelteKit, Tailwind, sql
   per-request `metrics` are both read, and the line is marked `server` when they are
   used
 - Live markdown rendered by a regex renderer, safe for partial (streaming) input
-- LaTeX math, rendered to MathML with KaTeX: `$inline$`, `$$display$$`, `\(inline\)`
-  and `\[display\]`. MathML is used deliberately, so no formula stylesheet or webfont
-  has to be downloaded and the browser draws the formula itself
+- LaTeX math, rendered to MathML with KaTeX: `$inline$`, `$$display$$`, `\(inline\)`,
+  `\[display\]` and a bare `\begin{align}` block. MathML is used deliberately, so no
+  formula stylesheet or webfont has to be downloaded and the browser draws the formula
+  itself. One unreadable token costs only itself: it shows in the danger colour inside an
+  otherwise correct formula, instead of turning the whole line back into source text. The
+  siunitx macros models reach for, `\quantity`, `\qty`, `\SI`, `\si`, `\unit` and `\num`,
+  are read as plain TeX with the unit kept upright
 - Client side tool calls: `web_search` through SearXNG, `web_fetch` with reader mode extraction
 - Skills, following the usual agent skills layout: upload markdown files with `name`
   and `description` frontmatter, or write them in Settings. Only the names and
