@@ -153,6 +153,12 @@ export class StdioConnection implements McpConnection {
 
 	request(method: string, params?: unknown, signal?: AbortSignal): Promise<unknown> {
 		return new Promise((resolve, reject) => {
+			// A signal that is already stopped never fires again, so the request has
+			// to be refused here: the listener below would stay attached for nothing.
+			if (signal?.aborted) {
+				reject(new Error('The MCP request was cancelled'));
+				return;
+			}
 			if (!this.alive) {
 				reject(new Error(this.#stopMessage()));
 				return;

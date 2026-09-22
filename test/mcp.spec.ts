@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { configFromCursor, parseCursorConfig, sanitizeToolPart, toCursorConfig, toolIdFor } from '$lib/shared/mcp';
 import type { McpServer } from '$lib/shared/types';
 import { StdioConnection } from '$lib/server/mcp/stdio';
@@ -141,5 +141,31 @@ describe('the stdio connection', () => {
 		const connection = await connect();
 		connection.close();
 		await expect(connection.callTool('echo', { text: 'hi' })).rejects.toThrow(/stopped/i);
+	});
+
+	it('refuses a request whose signal is already stopped', async () => {
+		const connection = await connect();
+		const controller = new AbortController();
+		const listener = vi.spyOn(controller.signal, 'addEventListener');
+		controller.abort();
+		try {
+			await expect(connection.request('tools/list', {}, controller.signal)).rejects.toThrow(/cancelled/i);
+			// A signal that already fired never fires again, so nothing may be
+			// attached to it: such a listener stays for the life of the signal.
+			expect(listener, 'no listener on a signal that cannot fire').not.toHaveBeenCalled();
+		} finally {
+			connection.close();
+		}
+	});
+
+	it('cancels a request when the stop arrives during it', async () => {
+		const connection = await connect({ timeoutMs: 4000 });
+		const controller = new AbortController();
+		const pending = connection.callTool('stall', {}, controller.signal);
+		await new Promise((resolve) => setTimeout(resolve, 60));
+		controller.abort();
+
+		await expect(pending).rejects.toThrow(/cancelled/i);
+		connection.close();
 	});
 });

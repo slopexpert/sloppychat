@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { HttpConnection } from '$lib/server/mcp/http';
 import type { McpServer } from '$lib/shared/types';
 
@@ -9,7 +9,7 @@ import type { McpServer } from '$lib/shared/types';
  */
 
 const SESSION = 'session-123';
-const hits = { initialize: 0, withoutSession: 0 };
+const hits = { initialize: 0, withoutSession: 0, calls: 0 };
 
 function server(overrides: Partial<McpServer['config']> = {}): McpServer {
 	return {
@@ -70,6 +70,7 @@ const mock = createServer((req, res) => {
 			return;
 		}
 		if (message.method === 'tools/call') {
+			hits.calls++;
 			const name = message.params?.name;
 			if (name === 'stall') return;
 			if (name === 'crlf') {
@@ -166,6 +167,23 @@ describe('the Streamable HTTP connection', () => {
 		try {
 			const answer = await connection.callTool('trailing', {});
 			expect(answer.content).toEqual([{ type: 'text', text: 'last frame' }]);
+		} finally {
+			connection.close();
+		}
+	});
+
+	it('refuses a request whose signal is already stopped, without asking the server', async () => {
+		const connection = await HttpConnection.connect(server());
+		const controller = new AbortController();
+		const listener = vi.spyOn(controller.signal, 'addEventListener');
+		controller.abort();
+		const before = hits.calls;
+		try {
+			await expect(connection.callTool('echo', { text: 'hi' }, controller.signal)).rejects.toThrow(
+				/cancelled/i
+			);
+			expect(hits.calls, 'the server was not asked').toBe(before);
+			expect(listener, 'no listener on a signal that cannot fire').not.toHaveBeenCalled();
 		} finally {
 			connection.close();
 		}

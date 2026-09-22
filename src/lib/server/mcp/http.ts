@@ -98,6 +98,9 @@ export class HttpConnection implements McpConnection {
 	/** Sends one request and reads the reply, whichever way it arrives. */
 	async #post(message: unknown, signal?: AbortSignal): Promise<JsonRpcReply | undefined> {
 		if (this.#closed) throw new Error('The MCP connection is closed');
+		// A signal that is already stopped never fires, so ask about it first:
+		// otherwise the request would wait for its whole timeout for nothing.
+		if (signal?.aborted) throw new Error('The MCP request was cancelled');
 		const controller = new AbortController();
 		const timer = setTimeout(() => controller.abort(), this.#timeoutMs);
 		const onAbort = () => controller.abort();
