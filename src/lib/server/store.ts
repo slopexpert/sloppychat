@@ -174,10 +174,19 @@ function mapConversation(row: Row): Conversation {
 	};
 }
 
+/**
+ * How many chats one list query returns, the most recently touched first. The
+ * sidebar takes the whole result, so the bound keeps one query and one render
+ * bounded. A chat past the bound leaves the list until it is touched again, which
+ * a local install with far fewer chats never reaches.
+ */
+export const CONVERSATION_LIMIT = 1000;
+
 export function listConversations(): Conversation[] {
 	return all(
 		`SELECT c.*, (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) AS message_count
-		 FROM conversations c ORDER BY c.updated_at DESC LIMIT 500`
+		 FROM conversations c ORDER BY c.updated_at DESC LIMIT ?`,
+		CONVERSATION_LIMIT
 	).map(mapConversation);
 }
 
