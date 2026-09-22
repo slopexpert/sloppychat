@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { app, applyTheme } from '$lib/client/state.svelte';
 	import { api } from '$lib/client/api';
 	import { DEFAULT_PARAMS } from '$lib/shared/types';
@@ -75,6 +76,8 @@
 	];
 
 	let saveTimer: ReturnType<typeof setTimeout> | undefined;
+	/** The patch the delay still holds, so a close can write it rather than lose it. */
+	let unsaved: Parameters<typeof app.saveSettings>[0] | undefined;
 	let panel: HTMLDivElement | undefined = $state();
 
 	const FOCUSABLE =
@@ -135,10 +138,36 @@
 	/** Settings that are cheap to edit are saved on a short delay. */
 	function save(patch: Parameters<typeof app.saveSettings>[0]) {
 		clearTimeout(saveTimer);
-		saveTimer = setTimeout(() => void app.saveSettings(patch), 400);
+		unsaved = patch;
+		saveTimer = setTimeout(() => {
+			unsaved = undefined;
+			void app.saveSettings(patch);
+		}, 400);
+	}
+
+	/**
+	 * The last edit may still wait on the delay, so leaving the panel writes it
+	 * instead of dropping it. A failed write says so, because `saveSettings` toasts.
+	 */
+	function flush() {
+		clearTimeout(saveTimer);
+		const patch = unsaved;
+		unsaved = undefined;
+		if (patch) void app.saveSettings(patch);
+	}
+
+	// A close the browser makes, not the Close button, still flushes.
+	onDestroy(flush);
+
+	/** Runs a provider write. A failure is shown, because the row did not change. */
+	function writeProvider(action: Promise<unknown>) {
+		action
+			.then(() => app.reloadProviders())
+			.catch((err: unknown) => app.toast('error', err instanceof Error ? err.message : String(err)));
 	}
 
 	function close() {
+		flush();
 		open = false;
 		onclose?.();
 	}
@@ -319,17 +348,21 @@
 										class="field w-40 text-sm"
 										value={provider.name}
 										onchange={(event) =>
-											api.updateProvider(provider.id, {
-												name: (event.currentTarget as HTMLInputElement).value
-											}).then(() => app.reloadProviders())}
+											writeProvider(
+												api.updateProvider(provider.id, {
+													name: (event.currentTarget as HTMLInputElement).value
+												})
+											)}
 									/>
 									<input
 										class="field min-w-56 flex-1 text-sm"
 										value={provider.baseUrl}
 										onchange={(event) =>
-											api.updateProvider(provider.id, {
-												baseUrl: (event.currentTarget as HTMLInputElement).value
-											}).then(() => app.reloadProviders())}
+											writeProvider(
+												api.updateProvider(provider.id, {
+													baseUrl: (event.currentTarget as HTMLInputElement).value
+												})
+											)}
 									/>
 									<label class="flex items-center gap-1.5 text-xs text-muted">
 										<input
@@ -337,9 +370,11 @@
 											class="accent-[var(--accent)]"
 											checked={provider.enabled}
 											onchange={(event) =>
-												api.updateProvider(provider.id, {
-													enabled: (event.currentTarget as HTMLInputElement).checked
-												}).then(() => app.reloadProviders())}
+												writeProvider(
+													api.updateProvider(provider.id, {
+														enabled: (event.currentTarget as HTMLInputElement).checked
+													})
+												)}
 										/>
 										enabled
 									</label>
@@ -350,18 +385,22 @@
 										type="password"
 										placeholder={provider.hasKey ? 'API key is set, type to replace' : 'API key'}
 										onchange={(event) =>
-											api.updateProvider(provider.id, {
-												apiKey: (event.currentTarget as HTMLInputElement).value
-											}).then(() => app.reloadProviders())}
+											writeProvider(
+												api.updateProvider(provider.id, {
+													apiKey: (event.currentTarget as HTMLInputElement).value
+												})
+											)}
 									/>
 									<input
 										class="field w-52 text-sm"
 										placeholder="default model"
 										value={provider.defaultModel ?? ''}
 										onchange={(event) =>
-											api.updateProvider(provider.id, {
-												defaultModel: (event.currentTarget as HTMLInputElement).value
-											}).then(() => app.reloadProviders())}
+											writeProvider(
+												api.updateProvider(provider.id, {
+													defaultModel: (event.currentTarget as HTMLInputElement).value
+												})
+											)}
 									/>
 									<button class="btn text-xs" onclick={() => testProvider(provider.id)}>
 										<Icon name="refresh" size={14} spin={app.modelsLoading[provider.id] === true} />
@@ -371,7 +410,7 @@
 										class="icon-btn hover:text-danger"
 										title="Delete this provider"
 										aria-label="Delete this provider"
-										onclick={() => api.deleteProvider(provider.id).then(() => app.reloadProviders())}
+										onclick={() => writeProvider(api.deleteProvider(provider.id))}
 									>
 										<Icon name="trash" />
 									</button>

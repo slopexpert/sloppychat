@@ -388,9 +388,14 @@ export class AppState {
 
 	async patchConversation(patch: Partial<Conversation>): Promise<void> {
 		if (!this.conversation) return;
-		const { conversation } = await api.updateConversation(this.conversation.id, patch);
-		this.conversation = conversation;
-		this.conversations = this.conversations.map((c) => (c.id === conversation.id ? conversation : c));
+		try {
+			const { conversation } = await api.updateConversation(this.conversation.id, patch);
+			this.conversation = conversation;
+			this.conversations = this.conversations.map((c) => (c.id === conversation.id ? conversation : c));
+		} catch (err) {
+			// A write the user cannot see fail: the fields on screen still say the old value.
+			this.toast('error', errorText(err));
+		}
 	}
 
 	async setModel(model: string): Promise<void> {
