@@ -2,6 +2,8 @@
 	import Markdown from './Markdown.svelte';
 	import ToolCallCard from './ToolCallCard.svelte';
 	import Icon from './Icon.svelte';
+	import { api } from '$lib/client/api';
+	import { app } from '$lib/client/state.svelte';
 	import type { ToolProgress } from '$lib/client/tools';
 	import { formatBriefStats, formatUsageLine, usageTooltip } from '$lib/shared/stats';
 	import type { Message } from '$lib/shared/types';
@@ -50,6 +52,11 @@
 	let editing = $state(false);
 	let draft = $state('');
 	let copied = $state(false);
+	/**
+	 * Attachment content by id: no key means closed, null means the text is on its
+	 * way in, an object is what to show.
+	 */
+	let docView = $state<Record<string, { text: string; truncated: boolean } | null>>({});
 	/** null follows the stream, a boolean is the user's own choice. */
 	let reasoningChoice = $state<boolean | null>(null);
 
@@ -81,6 +88,31 @@
 		await navigator.clipboard.writeText(message.text);
 		copied = true;
 		setTimeout(() => (copied = false), 1500);
+	}
+
+	/** Opens an attachment, reading the stored text the first time only. */
+	async function toggleDoc(id: string) {
+		if (docView[id] !== undefined) {
+			const next = { ...docView };
+			delete next[id];
+			docView = next;
+			return;
+		}
+		docView = { ...docView, [id]: null };
+		try {
+			const { document } = await api.readDocument(id);
+			docView = { ...docView, [id]: { text: document.text, truncated: document.truncated } };
+		} catch (err) {
+			app.toast('error', err instanceof Error ? err.message : String(err));
+			const next = { ...docView };
+			delete next[id];
+			docView = next;
+		}
+	}
+
+	async function copyText(value: string) {
+		await navigator.clipboard.writeText(value);
+		app.toast('ok', 'Copied');
 	}
 
 	/** The versions of this message: the messages that share its parent. */
@@ -127,14 +159,50 @@
 	>
 		<div class="max-w-[85%] space-y-2">
 			{#if message.documents?.length}
-				<div class="flex flex-wrap justify-end gap-2">
+				<div class="space-y-1.5">
 					{#each message.documents as doc (doc.id)}
-						<div class="flex items-center gap-2 rounded-card border border-line bg-raised px-2.5 py-1.5 text-xs">
-							<Icon name="fileText" size={14} class="text-faint" />
-							<span class="max-w-56 truncate-clip" title={doc.name}>{doc.name}</span>
-							<span class="text-faint">
-								{doc.pages} pages, {Math.round(doc.chars / 100) / 10}k chars
-							</span>
+						{@const view = docView[doc.id]}
+						<div class="flex flex-col items-end gap-1">
+							<div class="flex items-center gap-2 rounded-card border border-line bg-raised px-2.5 py-1.5 text-xs">
+								<Icon name="fileText" size={14} class="text-faint" />
+								<span class="max-w-56 truncate-clip" title={doc.name}>{doc.name}</span>
+								<span class="text-faint">
+									{#if doc.pages > 0}
+										{doc.pages} pages, {Math.round(doc.chars / 100) / 10}k chars
+									{:else}
+										{doc.lines ?? 0} lines, {Math.round(doc.chars / 100) / 10}k chars
+									{/if}
+								</span>
+								<button
+									class="icon-btn-ghost"
+									onclick={() => toggleDoc(doc.id)}
+									aria-expanded={view !== undefined}
+									title={view === undefined ? 'Show what was sent' : 'Hide the text'}
+									aria-label={view === undefined
+										? `Show what was sent from ${doc.name}`
+										: `Hide the text of ${doc.name}`}
+								>
+									<Icon name={view === undefined ? 'chevronDown' : 'chevronLeft'} size={13} />
+								</button>
+							</div>
+							{#if view !== undefined}
+								<div class="w-full space-y-1.5 rounded-card border border-line bg-raised p-2">
+									{#if view === null}
+										<p class="text-xs text-faint" role="status">Reading...</p>
+									{:else}
+										<pre
+											class="max-h-64 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[0.7rem] leading-relaxed text-muted">{view.text}{view.truncated
+												? '\n[cut for the screen, the whole text was sent]'
+												: ''}</pre>
+										<div class="flex justify-end">
+											<button class="btn px-2 py-0.5 text-xs" onclick={() => copyText(view.text)}>
+												<Icon name="copy" size={12} />
+												Copy
+											</button>
+										</div>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					{/each}
 				</div>

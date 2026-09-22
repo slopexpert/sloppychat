@@ -288,7 +288,7 @@ describe('page structure', () => {
 		const cardStart = body.indexOf('card bg-surface/95');
 		expect(cardStart, 'floating card exists').toBeGreaterThan(-1);
 		expect(body.indexOf('id="composer"'), 'message box inside the card').toBeGreaterThan(cardStart);
-		expect(body.indexOf('Attach images or a PDF'), 'attach button inside the card').toBeGreaterThan(cardStart);
+		expect(body.indexOf('Attach images, a PDF, or a text file'), 'attach button inside the card').toBeGreaterThan(cardStart);
 	});
 
 	it('only shows the send button when there is something to send', () => {

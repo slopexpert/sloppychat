@@ -11,13 +11,15 @@
 		slashQuery,
 		type PromptEntry
 	} from '$lib/shared/prompts';
+	import { TEXT_ACCEPT, PASTE_AS_FILE_CHARS, pastedName } from '$lib/shared/files';
 
 	/** Floating composer: the conversation scrolls behind it. */
 
 	let text = $state('');
 	let area: HTMLTextAreaElement | undefined = $state();
-	let dragging = $state(false);
 	let fileInput: HTMLInputElement | undefined = $state();
+	/** Set by Ctrl+Shift+V so the next paste stays in the message box. */
+	let inlinePaste = false;
 	/** A live `/name` token at the caret, which opens the snippet menu. */
 	let slash = $state<{ start: number; query: string; caret: number } | null>(null);
 	let pick = $state(0);
@@ -92,6 +94,12 @@
 	}
 
 	function onKeydown(event: KeyboardEvent) {
+		// A paste event carries no modifiers, so the shortcut is caught on the
+		// keystroke and honoured by the paste that follows it.
+		if (event.key.toLowerCase() === 'v' && (event.ctrlKey || event.metaKey) && event.shiftKey) {
+			inlinePaste = true;
+			return;
+		}
 		if (open && matches.length) {
 			if (event.key === 'ArrowDown') {
 				event.preventDefault();
@@ -126,7 +134,6 @@
 		if (!files?.length) return;
 		void app.attach([...files]);
 	}
-
 	function onPaste(event: ClipboardEvent) {
 		const files = [...(event.clipboardData?.items ?? [])]
 			.filter((item) => item.kind === 'file')
@@ -135,14 +142,22 @@
 		if (files.length) {
 			event.preventDefault();
 			pickFiles(files as unknown as FileList);
+			return;
 		}
+		// Ctrl+Shift+V is the way out: the text stays in the message box.
+		if (inlinePaste) {
+			inlinePaste = false;
+			return;
+		}
+		const value = event.clipboardData?.getData('text/plain') ?? '';
+		if (value.length < PASTE_AS_FILE_CHARS) return;
+		event.preventDefault();
+		const pending = app.pendingDocuments.filter((item) => item.document.name.startsWith('pasted-')).length;
+		const name = pastedName(new Date(), pending + 1);
+		app.toast('info', `${value.length} characters became ${name}. Ctrl+Shift+V pastes inline.`);
+		void app.attach([new File([value], name, { type: 'text/plain' })]);
 	}
 
-	function onDrop(event: DragEvent) {
-		event.preventDefault();
-		dragging = false;
-		pickFiles(event.dataTransfer?.files);
-	}
 </script>
 
 <div class="composer-scrim pointer-events-none absolute inset-x-0 bottom-0 z-10 h-28"></div>
@@ -177,23 +192,29 @@
 			<div class="mb-2 flex flex-wrap gap-2">
 				{#each app.pendingDocuments as item (item.document.id)}
 					<div class="flex items-center gap-2 rounded-card border border-line bg-surface/95 px-2 py-1.5 shadow-sm backdrop-blur">
-						{#if item.images[0]}
+						{#if item.document.pages > 0 && item.images[0]}
 							<img
 								src="/api/images/{item.images[0].id}"
 								alt="first page"
 								class="h-12 w-9 rounded-sm border border-line object-cover"
 							/>
 						{:else}
-							<span class="flex h-12 w-9 items-center justify-center rounded-sm border border-line text-[0.6rem] text-faint">PDF</span>
+							<span class="flex h-12 w-9 items-center justify-center rounded-sm border border-line text-[0.6rem] text-faint">
+								{item.document.pages > 0 ? 'PDF' : 'TXT'}
+							</span>
 						{/if}
 						<div class="text-xs">
 							<div class="max-w-40 truncate-clip font-medium" title={item.document.name}>{item.document.name}</div>
 							<div class="text-faint">
-								{item.document.pages} pages, {Math.round(item.document.chars / 100) / 10}k chars
-								{#if item.sendImages && item.images.length}
-									, {item.images.length} page images
+								{#if item.document.pages > 0}
+									{item.document.pages} pages, {Math.round(item.document.chars / 100) / 10}k chars
+									{#if item.sendImages && item.images.length}
+										, {item.images.length} page images
+									{:else}
+										, text only
+									{/if}
 								{:else}
-									, text only
+									{item.document.lines ?? 0} lines, {Math.round(item.document.chars / 100) / 10}k chars
 								{/if}
 							</div>
 						</div>
@@ -264,31 +285,20 @@
 			</ul>
 		{/if}
 
-		<div
-			class="card bg-surface/95 p-2 shadow-lg backdrop-blur transition-colors {dragging
-				? 'border-accent'
-				: ''}"
-			role="presentation"
-			ondragover={(event) => {
-				event.preventDefault();
-				dragging = true;
-			}}
-			ondragleave={() => (dragging = false)}
-			ondrop={onDrop}
-		>
+		<div class="card bg-surface/95 p-2 shadow-lg backdrop-blur">
 			<div class="flex items-end gap-2">
 				<button
 					class="icon-btn shrink-0 p-2"
 					onclick={() => fileInput?.click()}
-					title="Attach images or a PDF"
-					aria-label="Attach images or a PDF"
+					title="Attach images, a PDF, or a text file"
+					aria-label="Attach images, a PDF, or a text file"
 				>
 					<Icon name="paperclip" size={18} />
 				</button>
 				<input
 					bind:this={fileInput}
 					type="file"
-					accept="image/png,image/jpeg,image/webp,image/gif,image/avif,application/pdf"
+					accept={`image/png,image/jpeg,image/webp,image/gif,image/avif,application/pdf,${TEXT_ACCEPT}`}
 					multiple
 					class="hidden"
 					onchange={(event) => {

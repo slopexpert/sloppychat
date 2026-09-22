@@ -14,7 +14,10 @@ export interface ImageRef {
 export interface DocumentRef {
 	id: string;
 	name: string;
+	/** Pages of a PDF, 0 for a text or code file. */
 	pages: number;
+	/** Lines of a text or code file, absent for a PDF. */
+	lines?: number;
 	/** Characters of text extracted from the document. */
 	chars: number;
 }
@@ -315,6 +318,8 @@ export interface Settings {
 		pdfMaxImages: number;
 		/** Characters of extracted PDF text sent to the model. */
 		pdfMaxChars: number;
+		/** Characters of one attached text or code file sent to the model. */
+		textMaxChars: number;
 	};
 	defaults: { providerId: string | null; model: string | null };
 }
@@ -330,7 +335,8 @@ export const DEFAULT_SETTINGS: Settings = {
 		fetchAllowPrivate: false,
 		pdfImages: true,
 		pdfMaxImages: 8,
-		pdfMaxChars: 12000
+		pdfMaxChars: 12000,
+		textMaxChars: 20000
 	},
 	defaults: { providerId: null, model: null }
 };

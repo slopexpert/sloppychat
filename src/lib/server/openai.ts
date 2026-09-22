@@ -1,4 +1,5 @@
 import { getDocument, getImage } from './store';
+import { textFileBlock } from '$lib/shared/files';
 import type { Message, ModelInfo, Provider, RuntimeTimings, UpstreamTool, Usage } from '$lib/shared/types';
 
 /**
@@ -170,21 +171,27 @@ function toDataUrl(blob: Uint8Array, mime: string): string {
 	return `data:${mime};base64,${Buffer.from(blob).toString('base64')}`;
 }
 
+/** Cuts text to the cap and marks that it was cut. */
+function clip(text: string, cap: number, mark: string): string {
+	return text.length > cap ? `${text.slice(0, cap)}\n\n${mark}` : text;
+}
+
 /** Images become inline data URLs: portable across every compatible vendor. */
-function userParts(msg: Message, docMaxChars: number): UpstreamContentPart[] | string {
+function userParts(msg: Message, options: { docMaxChars: number; textMaxChars: number }): UpstreamContentPart[] | string {
 	const docParts: UpstreamContentPart[] = [];
 	for (const ref of msg.documents ?? []) {
 		const stored = getDocument(ref.id);
 		const text = stored?.text.trim();
 		if (!text) continue;
-		const body =
-			text.length > docMaxChars
-				? `${text.slice(0, docMaxChars)}\n\n[document text truncated]`
-				: text;
-		docParts.push({
-			type: 'text',
-			text: `Extracted text of the attached document "${ref.name}" (${ref.pages} pages):\n\n${body}`
-		});
+		// A PDF always has pages, so a document without them is a text or code file.
+		docParts.push(
+			ref.pages > 0
+				? {
+						type: 'text',
+						text: `Extracted text of the attached document "${ref.name}" (${ref.pages} pages):\n\n${clip(text, options.docMaxChars, '[document text truncated]')}`
+					}
+				: { type: 'text', text: textFileBlock(ref.name, text, options.textMaxChars) }
+		);
 	}
 	if (!msg.images.length && !docParts.length) return msg.text;
 	const parts: UpstreamContentPart[] = [];
@@ -204,9 +211,10 @@ function userParts(msg: Message, docMaxChars: number): UpstreamContentPart[] | s
  */
 export function toUpstreamMessages(
 	messages: Message[],
-	options: { docMaxChars?: number } = {}
+	options: { docMaxChars?: number; textMaxChars?: number } = {}
 ): UpstreamMessage[] {
 	const docMaxChars = options.docMaxChars ?? 12000;
+	const textMaxChars = options.textMaxChars ?? 20000;
 	const answered = new Set(
 		messages.filter((m) => m.role === 'tool' && m.toolCallId).map((m) => m.toolCallId as string)
 	);
@@ -242,7 +250,7 @@ export function toUpstreamMessages(
 			if (msg.text) out.push({ role: 'system', content: msg.text });
 			continue;
 		}
-		out.push({ role: 'user', content: userParts(msg, docMaxChars) });
+		out.push({ role: 'user', content: userParts(msg, { docMaxChars, textMaxChars }) });
 	}
 	return out;
 }

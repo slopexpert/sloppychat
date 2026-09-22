@@ -1,6 +1,7 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
 import { appendMessage, getConversation, getDocument, listMessages, maybeTitleFromFirstMessage } from '$lib/server/store';
+import { countLines } from '$lib/shared/files';
 import type { DocumentRef, ImageRef } from '$lib/shared/types';
 
 export const GET = (async ({ params }) => {
@@ -21,7 +22,14 @@ export const POST = (async ({ params, request }) => {
 				// Refresh the counts from the store so the client cannot skew them.
 				return [
 					stored
-						? { id: stored.id, name: stored.name, pages: stored.pages, chars: stored.text.length }
+						? {
+								id: stored.id,
+								name: stored.name,
+								pages: stored.pages,
+								// A document without pages is a text file, so its line count belongs here.
+								...(stored.pages > 0 ? {} : { lines: countLines(stored.text) }),
+								chars: stored.text.length
+							}
 						: doc
 				];
 			})

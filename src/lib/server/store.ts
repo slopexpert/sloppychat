@@ -272,12 +272,15 @@ export function saveDocument(id: string, name: string, mime: string, pages: numb
 	);
 }
 
-export function getDocument(id: string): { id: string; name: string; pages: number; text: string } | undefined {
-	const row = one('SELECT id, name, pages, text FROM documents WHERE id = ?', id);
+export function getDocument(
+	id: string
+): { id: string; name: string; mime: string; pages: number; text: string } | undefined {
+	const row = one('SELECT id, name, mime, pages, text FROM documents WHERE id = ?', id);
 	if (!row) return undefined;
 	return {
 		id: str(row.id),
 		name: str(row.name, 'document'),
+		mime: str(row.mime, 'application/pdf'),
 		pages: typeof row.pages === 'number' ? row.pages : 0,
 		text: str(row.text)
 	};

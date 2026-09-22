@@ -23,6 +23,7 @@ import {
 } from '$lib/shared/types';
 import type { Skill } from '$lib/shared/skills';
 import { clockVars, type PromptEntry, type PromptVars } from '$lib/shared/prompts';
+import { isTextFile } from '$lib/shared/files';
 import { resolveParams } from '$lib/shared/params';
 import { TOOL_CATALOG } from '$lib/shared/tools';
 import { contextUsage, liveRate, ratePerSecond } from '$lib/shared/stats';
@@ -63,6 +64,11 @@ export function errorText(err: unknown): string {
 
 function isPdf(file: File): boolean {
 	return file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+}
+
+/** Plain text and source code, decided by the same rules the server uses. */
+function isPlainText(file: File): boolean {
+	return isTextFile(file);
 }
 
 export class AppState {
@@ -703,12 +709,12 @@ export class AppState {
 		this.uploading = true;
 		try {
 			for (const file of files) {
-				if (isPdf(file)) {
+				if (isPdf(file) || isPlainText(file)) {
 					await this.attachDocument(file);
 					continue;
 				}
 				if (!file.type.startsWith('image/')) {
-					this.toast('error', `${file.name} is not an image`);
+					this.toast('error', `${file.name} is not an image, a PDF or a text file`);
 					continue;
 				}
 				const { image } = await api.uploadImage(file);
@@ -721,7 +727,7 @@ export class AppState {
 		}
 	}
 
-	/** PDFs are converted on the server: text always, page images for vision models. */
+	/** PDFs are read on the server, text and code files are stored as they are. */
 	private async attachDocument(file: File): Promise<void> {
 		try {
 			const { document, images } = await api.uploadDocument(file);

@@ -534,6 +534,31 @@
 						</div>
 
 						<div class="card space-y-2 p-3">
+							<h3 class="text-sm font-semibold">Text and code attachments</h3>
+							<p class="text-xs text-faint">
+								Plain files are sent as they are, inside a fence marked with the language. A binary
+								file is refused, and a file over 2 MB is refused whole.
+							</p>
+							<label class="block max-w-64 text-xs text-muted">
+								Characters per attached file
+								<input
+									class="field mt-1 text-sm"
+									type="number"
+									min="1000"
+									max="500000"
+									value={app.settings.tools.textMaxChars}
+									onchange={(event) =>
+										save({
+											tools: {
+												...app.settings.tools,
+												textMaxChars: Number((event.currentTarget as HTMLInputElement).value) || 20000
+											}
+										})}
+								/>
+							</label>
+						</div>
+
+						<div class="card space-y-2 p-3">
 							<h3 class="text-sm font-semibold">SearXNG</h3>
 							<input
 								class="field text-sm"

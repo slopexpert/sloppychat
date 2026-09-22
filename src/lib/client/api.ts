@@ -182,6 +182,21 @@ export const api = {
 		request<{ prompt: PromptEntry }>(`/api/prompts/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 	deletePrompt: (id: string) => request<{ ok: true }>(`/api/prompts/${id}`, { method: 'DELETE' }),
 
+	/** The stored text of one attachment, cut for the screen. */
+	readDocument: (id: string) =>
+		request<{
+			document: {
+				id: string;
+				name: string;
+				mime: string;
+				pages: number;
+				lines: number;
+				chars: number;
+				text: string;
+				truncated: boolean;
+			};
+		}>(`/api/documents/${id}`),
+
 	uploadDocument: (file: File) => {
 		const form = new FormData();
 		form.append('file', file);

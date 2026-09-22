@@ -1405,6 +1405,47 @@ try {
 		),
 		JSON.stringify(sentParts.map((part) => part.type))
 	);
+
+	// Text and code attachments: stored whole, line count kept, readable back.
+	const tsForm = new FormData();
+	tsForm.append('file', new Blob(['const a = 1;\nconst b = 2;\n'], { type: 'text/plain' }), 'src/app.ts');
+	const tsUpload = await json(`${APP}/api/documents`, { method: 'POST', body: tsForm, headers: { origin: APP } });
+	check(
+		'a source file uploads as text with its line count',
+		tsUpload.status === 201 &&
+			tsUpload.body.document?.pages === 0 &&
+			tsUpload.body.document?.lines === 2 &&
+			tsUpload.body.images?.length === 0,
+		JSON.stringify(tsUpload.body).slice(0, 220)
+	);
+
+	const jsoncForm = new FormData();
+	jsoncForm.append('file', new Blob(['{ // note\n  "a": 1\n}\n'], { type: '' }), 'settings.jsonc');
+	const jsoncUpload = await json(`${APP}/api/documents`, { method: 'POST', body: jsoncForm, headers: { origin: APP } });
+	check('json with comments uploads as text', jsoncUpload.status === 201, JSON.stringify(jsoncUpload.body).slice(0, 160));
+
+	const tsMessage = await json(`${APP}/api/conversations/${conversationId}/messages`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({
+			text: 'read it',
+			documents: [{ id: tsUpload.body.document.id, name: 'src/app.ts', pages: 0, chars: 25 }]
+		})
+	});
+	check(
+		'the line count survives the message',
+		tsMessage.body.message?.documents?.[0]?.lines === 2,
+		JSON.stringify(tsMessage.body.message?.documents)
+	);
+
+	const readBack = await json(`${APP}/api/documents/${tsUpload.body.document.id}`);
+	check(
+		'an attachment reads back from the server',
+		readBack.status === 200 && readBack.body.document?.text.includes('const a = 1;'),
+		JSON.stringify(readBack.body).slice(0, 220)
+	);
+	const missingRead = await json(`${APP}/api/documents/nope`);
+	check('an unknown attachment gives 404', missingRead.status === 404, JSON.stringify(missingRead.body));
 } catch (err) {
 	console.error('FAIL harness error:', err);
 	process.exitCode = 1;

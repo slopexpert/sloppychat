@@ -50,6 +50,10 @@ Single user chat UI for any OpenAI compatible endpoint. SvelteKit, Tailwind, sql
 - Images: attach, paste or drop them, stored in sqlite and inlined for vision models
 - PDFs: text is extracted page by page and pages are rendered to images, so text only
   models get the text and vision models also get the pages
+- Text and code files: `.ts`, `.py`, `.md`, `.json`, `.jsonc`, `.csv`, `.sql` and about seventy
+  more, plus `Makefile` and friends, are stored as typed and sent inside a fence marked with
+  the language. A binary file is refused rather than guessed at. Drop one anywhere on the
+  page, and open an attachment in the chat to read back what was sent
 - Twelve named themes such as Rosé Pine, Catppuccin, Tokyo Night, Gruvbox, Nord and
   VS Code, each with a light and a dark variant where the palette has both, plus a
   System or custom font, three text sizes, five corner radii and three padding
@@ -140,6 +144,30 @@ Both kinds can hold variables, filled in where the text is used:
 prompt is filled again on every request, so `{{date}}` never goes stale in a long chat.
 Any other name in braces, `{{topic}}` for example, is left alone: in a snippet it becomes
 the blank the caret lands on, and in a system prompt it stays visible as a hole to fill.
+
+## Text and code files
+
+An attached plain file skips every conversion step. The rules live in
+`src/lib/shared/files.ts`, which the file picker, the upload route and the prompt builder
+all read, so they cannot disagree:
+
+- the extension, or a name such as `Makefile`, `Dockerfile` or `CMakeLists.txt`, decides it
+  is text, and a mime type of `text/...` is trusted on its own
+- a paste of 2000 characters or more becomes an attachment called `pasted-20260814-1705.txt`,
+  which keeps a long log out of the message box. `Ctrl+Shift+V` pastes inline as before
+- the bytes have the final say: a NUL byte or too many control characters means the file is
+  refused, so a renamed object file cannot reach the prompt
+- files stop at 2 MB whole, and each one is cut at Settings, Tools, "Characters per attached
+  file" with `[file text truncated]` marked
+- the text is sent as its own block after the question, fenced with the language of the
+  extension, and the fence grows when the body holds backticks
+- the file picker lists the known extensions, and a drop works anywhere on the page: the
+  window answers it, shows a dashed frame while a file drag is over the page, and asks the
+  server what to do with it. A drag that carries no file, such as moving a chat into a
+  folder, is left alone
+- every attachment in the chat opens with a caret to show the text that was sent, with a copy
+  button. The text is read back from sqlite, so an old chat stays reviewable after the
+  original file is gone
 
 ## PDF handling
 

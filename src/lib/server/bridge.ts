@@ -130,7 +130,10 @@ async function generationOptions(model: string, conversationId: string, support?
 		});
 	}
 	history.push(...listMessages(conversationId));
-	payload.messages = toUpstreamMessages(history, { docMaxChars: settings.tools.pdfMaxChars });
+	payload.messages = toUpstreamMessages(history, {
+		docMaxChars: settings.tools.pdfMaxChars,
+		textMaxChars: settings.tools.textMaxChars
+	});
 	return payload;
 }
 
