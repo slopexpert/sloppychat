@@ -794,17 +794,29 @@ export class AppState {
 					`${document.name}: page images skipped because ${this.model} is text only, the text is still sent`
 				);
 			}
+			// Page images the model will never see are dead rows from the start.
+			if (!wantsImages) this.dropImages(images.map((image) => image.id));
 		} catch (err) {
 			this.toast('error', `${file.name}: ${errorText(err)}`);
 		}
 	}
 
 	removePendingDocument(id: string): void {
-		this.pendingDocuments = this.pendingDocuments.filter((item) => item.document.id !== id);
+		const item = this.pendingDocuments.find((entry) => entry.document.id === id);
+		this.pendingDocuments = this.pendingDocuments.filter((entry) => entry.document.id !== id);
+		// The rows outlive the picker, so the server has to hear about the drop too.
+		api.deleteDocument(id).catch(() => {});
+		this.dropImages((item?.images ?? []).map((image) => image.id));
 	}
 
 	removePendingImage(id: string): void {
 		this.pendingImages = this.pendingImages.filter((image) => image.id !== id);
+		this.dropImages([id]);
+	}
+
+	/** Frees image rows the composer no longer holds. A failed drop must not block typing. */
+	private dropImages(ids: string[]): void {
+		for (const id of ids) api.deleteImage(id).catch(() => {});
 	}
 
 	private turnBody() {

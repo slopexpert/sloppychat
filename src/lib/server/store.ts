@@ -1,4 +1,4 @@
-import { all, newId, now, one, run, tx } from './db';
+import { all, newId, now, one, run, runChanges, tx } from './db';
 import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type ChatHit, type Conversation, type Folder, type McpServer, type McpServerConfig, type Message, type Provider, type QueuedMessage, type Settings } from '$lib/shared/types';
 import { migrateToolModes } from '$lib/shared/tools';
 import type { Skill } from '$lib/shared/skills';
@@ -264,6 +264,24 @@ export function getImage(id: string): { mime: string; blob: Uint8Array } | undef
 	return { mime: str(row.mime, 'application/octet-stream'), blob };
 }
 
+/** Attachment lists are JSON columns, so one id shows up as text inside them. */
+function attachmentInUse(column: 'images' | 'documents', id: string): boolean {
+	const like = `%"${id}"%`;
+	for (const table of ['messages', 'queued_messages']) {
+		if (one(`SELECT 1 AS hit FROM ${table} WHERE ${column} LIKE ?`, like)) return true;
+	}
+	return false;
+}
+
+/**
+ * Drops an uploaded image. A row that a stored or queued message still names is
+ * kept, so a stale tab cannot empty a chat the user already sent.
+ */
+export function deleteImage(id: string): boolean {
+	if (attachmentInUse('images', id)) return false;
+	return runChanges('DELETE FROM images WHERE id = ?', id) > 0;
+}
+
 /* ----------------------------------------------------------------- documents */
 
 export function saveDocument(id: string, name: string, mime: string, pages: number, textContent: string): void {
@@ -290,6 +308,15 @@ export function getDocument(
 		pages: typeof row.pages === 'number' ? row.pages : 0,
 		text: str(row.text)
 	};
+}
+
+/**
+ * Drops an uploaded attachment. The page images of a PDF are separate rows, and
+ * the caller that holds their ids drops them.
+ */
+export function deleteDocument(id: string): boolean {
+	if (attachmentInUse('documents', id)) return false;
+	return runChanges('DELETE FROM documents WHERE id = ?', id) > 0;
 }
 
 /* ----------------------------------------------------------- the queue --- */

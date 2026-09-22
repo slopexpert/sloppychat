@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { bad } from '$lib/server/http';
-import { getDocument } from '$lib/server/store';
+import { deleteDocument, getDocument } from '$lib/server/store';
 import { countLines } from '$lib/shared/files';
 
 /**
@@ -26,4 +26,10 @@ export const GET = (({ params }) => {
 			truncated: stored.text.length > MAX_VIEW_CHARS
 		}
 	});
+}) satisfies RequestHandler;
+
+/** Drops an attachment the user removed before sending, so its text does not linger. */
+export const DELETE = (({ params }) => {
+	if (!getDocument(params.id)) return bad('Attachment not found', 404);
+	return Response.json({ ok: true, dropped: deleteDocument(params.id) });
 }) satisfies RequestHandler;

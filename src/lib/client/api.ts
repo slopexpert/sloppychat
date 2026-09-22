@@ -145,6 +145,9 @@ export const api = {
 		return request<{ image: ImageRef }>('/api/images', { method: 'POST', body: form });
 	},
 
+	/** Frees the row of an image the user dropped before it was sent. */
+	deleteImage: (id: string) => request<{ ok: true; dropped: boolean }>(`/api/images/${id}`, { method: 'DELETE' }),
+
 	stopTurn: (conversationId: string) =>
 		request<{ stopped: boolean }>('/api/chat/stop', {
 			method: 'POST',
@@ -201,6 +204,10 @@ export const api = {
 			body: form
 		});
 	},
+
+	/** Frees the row of an attachment the user dropped before it was sent. */
+	deleteDocument: (id: string) =>
+		request<{ ok: true; dropped: boolean }>(`/api/documents/${id}`, { method: 'DELETE' }),
 
 	search: (query: string, maxResults: number, signal?: AbortSignal) =>
 		request<{

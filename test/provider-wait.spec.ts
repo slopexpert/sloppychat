@@ -14,6 +14,7 @@ const provider: Provider = {
 	name: 'Hanging',
 	baseUrl: 'http://127.0.0.1:5407/v1',
 	kind: 'openai',
+	defaultModel: null,
 	apiKey: '',
 	enabled: true,
 	sort: 0,

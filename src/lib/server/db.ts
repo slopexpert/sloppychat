@@ -403,6 +403,14 @@ export function run(sql: string, ...params: unknown[]): void {
 		.run(...(params as never[]));
 }
 
+/** Runs a write and gives back how many rows it changed. */
+export function runChanges(sql: string, ...params: unknown[]): number {
+	const result = getDB()
+		.sqlite.prepare(sql)
+		.run(...(params as never[])) as unknown as { changes: number };
+	return Number(result.changes);
+}
+
 /** How deep inside a transaction of this process the code stands. */
 let txDepth = 0;
 

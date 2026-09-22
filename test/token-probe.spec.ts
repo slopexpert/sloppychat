@@ -18,6 +18,7 @@ function provider(): Provider {
 		name: `Provider ${id}`,
 		baseUrl: 'http://127.0.0.1:1/v1',
 		kind: 'openai',
+		defaultModel: null,
 		apiKey: '',
 		enabled: true,
 		sort: 0,

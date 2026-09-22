@@ -1,6 +1,6 @@
 import type { RequestHandler } from './$types';
 import { bad } from '$lib/server/http';
-import { getImage } from '$lib/server/store';
+import { deleteImage, getImage } from '$lib/server/store';
 
 /** Serves a stored image. Ids are random, so access is unlisted but unauthenticated. */
 export const GET = (async ({ params }) => {
@@ -13,4 +13,10 @@ export const GET = (async ({ params }) => {
 			'cache-control': 'private, max-age=31536000, immutable'
 		}
 	});
+}) satisfies RequestHandler;
+
+/** Drops an image the user removed before sending, so its bytes do not linger. */
+export const DELETE = (({ params }) => {
+	if (!getImage(params.id)) return bad('Image not found', 404);
+	return Response.json({ ok: true, dropped: deleteImage(params.id) });
 }) satisfies RequestHandler;
