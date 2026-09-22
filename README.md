@@ -64,6 +64,8 @@ Single user chat UI for any OpenAI compatible endpoint. SvelteKit, Tailwind, sql
   VS Code, each with a light and a dark variant where the palette has both, plus a
   System or custom font, three text sizes, five corner radii and three padding
   densities, all set in Settings, Appearance
+- Fenced code is coloured from the palette you picked: every theme carries the syntax
+  colours of its upstream project, on that palette's own code background
 - The chat list is a column when the window is wide and a drawer over the conversation
   when it is not, with a backdrop, Escape to close, and focus handed back to the toggle
 - Every generation parameter is editable, per chat or as a global default
@@ -240,6 +242,18 @@ A family may also pick its own tone for inline code with the `--code` token, whi
 back to the accent so untouched palettes keep today's look. Rosé Pine and Rosé Pine Moon set
 it to their gold, which reads as lemon against the pink accent; Dawn sets a darker gold,
 because its own gold only reaches 1.9:1 on that pale background.
+
+Fenced code takes six colours from the `--syn-*` tokens, one for each role the highlighter
+emits: comment, string, number, keyword, function, punctuation. The default palette derives
+them from the accent. Every named palette sets the real values of its upstream project,
+following the role guide of the palette (Rosé Pine), the editor theme of the project
+(Catppuccin, Tokyo Night, Gruvbox, Nord) or the grammar the theme inherits (VS Code Dark+
+and Light+). Blocks sit on `--code-bg`, which each palette keeps at its own background, so
+code reads as a panel set into the conversation. Where a role colour cannot clear 4.5:1 on
+that background, the palette takes the nearest readable step of the same hue, and the line
+says so; comments only have to clear 3:1, because every palette dims them on purpose.
+`test/appearance.spec.ts` checks both rules and spot checks one role per family against the
+upstream value.
 
 Two details keep the first paint clean:
 

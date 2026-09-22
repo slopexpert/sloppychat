@@ -16,6 +16,7 @@
 	--color-accent-soft: var(--accent-soft);
 	--color-secondary: var(--secondary);
 	--color-code: var(--code);
+	--color-code-bg: var(--code-bg);
 	--color-danger: var(--danger);
 	--color-ok: var(--ok);
 	/* Appearance settings drive these, so every utility follows the choice. */
@@ -55,6 +56,16 @@
 	--secondary: color-mix(in oklab, var(--accent) 45%, var(--muted));
 	/* Inline code tone: follows the accent, unless a palette picks its own. */
 	--code: var(--accent);
+	/* Fenced code sits on the palette background, recessed in the chat surface. */
+	--code-bg: var(--bg);
+	/* Syntax colours for fenced code. The default palettes derive them from the
+		accent; every named palette below sets its own from the upstream palette. */
+	--syn-com: var(--faint);
+	--syn-str: var(--ok);
+	--syn-num: color-mix(in oklab, var(--danger) 75%, var(--fg));
+	--syn-key: color-mix(in oklab, var(--accent) 80%, var(--fg));
+	--syn-fn: color-mix(in oklab, var(--accent) 60%, var(--fg));
+	--syn-punc: var(--muted);
 	color-scheme: light;
 }
 
@@ -122,6 +133,14 @@
 /* Rose Pine, https://rose-pine.org. Love is the accent, iris the italic tone, gold the inline code. */
 [data-theme='rose-pine'] {
 	--bg: #191724;
+	/* Syntax roles follow the palette guide: muted comments, gold strings, rose
+		numbers, iris keywords, foam functions, subtle punctuation. */
+	--syn-com: #6e6a86;
+	--syn-str: #f6c177;
+	--syn-num: #ebbcba;
+	--syn-key: #c4a7e7;
+	--syn-fn: #9ccfd8;
+	--syn-punc: #908caa;
 	--surface: #1f1d2e;
 	--raised: #26233a;
 	--line: #26233a;
@@ -138,6 +157,14 @@
 /* Rose Pine Moon, https://rose-pine.org. Love is the accent, iris the italic tone, gold the inline code. */
 [data-theme='rose-pine-moon'] {
 	--bg: #232136;
+	/* Same roles as Rose Pine. Muted is 3.0:1 on this background, so comments take
+		the lightest step of the same grey. */
+	--syn-com: #706c89;
+	--syn-str: #f6c177;
+	--syn-num: #ea9a97;
+	--syn-key: #c4a7e7;
+	--syn-fn: #9ccfd8;
+	--syn-punc: #908caa;
 	--surface: #2a273f;
 	--raised: #393552;
 	--line: #393552;
@@ -154,6 +181,14 @@
 /* Rose Pine Dawn, https://rose-pine.org */
 [data-theme='rose-pine-dawn'] {
 	--bg: #faf4ed;
+	/* Strings take pine, as in the upstream highlight theme. Love, iris and foam are
+		pale on this background, so they take a darker step of the same hue. */
+	--syn-com: #797593;
+	--syn-str: #286983;
+	--syn-num: #ab526c;
+	--syn-key: #7e649b;
+	--syn-fn: #44757e;
+	--syn-punc: #575279;
 	--surface: #fffaf3;
 	--raised: #f2e9e1;
 	--line: #f2e9e1;
@@ -171,6 +206,14 @@
 /* Catppuccin Mocha, https://catppuccin.com */
 [data-theme='catppuccin-mocha'] {
 	--bg: #1e1e2e;
+	/* Syntax roles follow the upstream editor theme: overlay2 comments, green
+		strings, peach numbers, mauve keywords, blue functions, subtext punctuation. */
+	--syn-com: #9399b2;
+	--syn-str: #a6e3a1;
+	--syn-num: #fab387;
+	--syn-key: #cba6f7;
+	--syn-fn: #89b4fa;
+	--syn-punc: #a6adc8;
 	--surface: #181825;
 	--raised: #313244;
 	--line: #313244;
@@ -185,6 +228,12 @@
 /* Catppuccin Macchiato, https://catppuccin.com */
 [data-theme='catppuccin-macchiato'] {
 	--bg: #24273a;
+	--syn-com: #939ab7;
+	--syn-str: #a6da95;
+	--syn-num: #f5a97f;
+	--syn-key: #c6a0f6;
+	--syn-fn: #8aadf4;
+	--syn-punc: #a5adcb;
 	--surface: #1e2030;
 	--raised: #363a4f;
 	--line: #363a4f;
@@ -199,6 +248,12 @@
 /* Catppuccin Frappe, https://catppuccin.com */
 [data-theme='catppuccin-frappe'] {
 	--bg: #303446;
+	--syn-com: #949cbb;
+	--syn-str: #a6d189;
+	--syn-num: #ef9f76;
+	--syn-key: #ca9ee6;
+	--syn-fn: #8caaee;
+	--syn-punc: #a5adce;
 	--surface: #292c3c;
 	--raised: #414559;
 	--line: #414559;
@@ -213,6 +268,14 @@
 /* Catppuccin Latte, https://catppuccin.com */
 [data-theme='catppuccin-latte'] {
 	--bg: #eff1f5;
+	/* The latte accents are made for a dark background, so the four that fall short
+		keep their hue and take the nearest darker step. */
+	--syn-com: #7c7f93;
+	--syn-str: #327c21;
+	--syn-num: #bc4501;
+	--syn-key: #8839ef;
+	--syn-fn: #145ff5;
+	--syn-punc: #676a7f;
 	--surface: #e6e9ef;
 	--raised: #ccd0da;
 	--line: #ccd0da;
@@ -227,6 +290,15 @@
 /* Tokyo Night, https://github.com/folke/tokyonight.nvim */
 [data-theme='tokyo-night'] {
 	--bg: #1a1b26;
+	/* Syntax roles follow the upstream prism theme: green strings, orange numbers,
+		purple keywords, blue functions, cyan operators. Comments take dark5, as the
+		palette comment colour is 2.8:1 here. */
+	--syn-com: #737aa2;
+	--syn-str: #9ece6a;
+	--syn-num: #ff9e64;
+	--syn-key: #9d7cd8;
+	--syn-fn: #7aa2f7;
+	--syn-punc: #89ddff;
 	--surface: #16161e;
 	--raised: #292e42;
 	--line: #3b4261;
@@ -241,6 +313,13 @@
 /* Tokyo Night Storm, https://github.com/folke/tokyonight.nvim */
 [data-theme='tokyo-night-storm'] {
 	--bg: #24283b;
+	/* Storm lifts the background, so the palette purple needs one step up. */
+	--syn-com: #737aa2;
+	--syn-str: #9ece6a;
+	--syn-num: #ff9e64;
+	--syn-key: #a080d9;
+	--syn-fn: #7aa2f7;
+	--syn-punc: #89ddff;
 	--surface: #1f2335;
 	--raised: #292e42;
 	--line: #3b4261;
@@ -255,6 +334,14 @@
 /* Gruvbox Light, https://github.com/morhetz/gruvbox */
 [data-theme='gruvbox-light'] {
 	--bg: #fbf1c7;
+	/* Syntax roles follow the upstream theme on the faded accents this flavour uses.
+		Dark4 replaces the palette grey for comments, and the green takes one step down. */
+	--syn-com: #7c6f64;
+	--syn-str: #74700d;
+	--syn-num: #8f3f71;
+	--syn-key: #9d0006;
+	--syn-fn: #076678;
+	--syn-punc: #504945;
 	--surface: #f2e5bc;
 	--raised: #ebdbb2;
 	--line: #d5c4a1;
@@ -269,6 +356,13 @@
 /* VS Code Light Modern, https://github.com/microsoft/vscode */
 [data-theme='vscode-light-modern'] {
 	--bg: #ffffff;
+	/* Token colours of the Light+ grammar that Light Modern inherits. */
+	--syn-com: #008000;
+	--syn-str: #a31515;
+	--syn-num: #098658;
+	--syn-key: #0000ff;
+	--syn-fn: #795e26;
+	--syn-punc: #1f1f1f;
 	--surface: #f8f8f8;
 	--raised: #e5e5e5;
 	--line: #cecece;
@@ -283,6 +377,14 @@
 /* Nord, https://nordtheme.com */
 [data-theme='nord'] {
 	--bg: #2e3440;
+	/* Syntax roles from the upstream Nord highlight theme. Nord3 is 1.7:1 on nord0,
+		so comments take a lighter step of the same slate. */
+	--syn-com: #72809a;
+	--syn-str: #a3be8c;
+	--syn-num: #b691af;
+	--syn-key: #81a1c1;
+	--syn-fn: #88c0d0;
+	--syn-punc: #d8dee9;
 	--surface: #3b4252;
 	--raised: #434c5e;
 	--line: #434c5e;
@@ -297,6 +399,14 @@
 /* Gruvbox Dark, https://github.com/morhetz/gruvbox */
 [data-theme='gruvbox-dark'] {
 	--bg: #282828;
+	/* Syntax roles follow the upstream theme on the bright accents this flavour uses.
+		The bright red needs one step up to clear 4.5:1. */
+	--syn-com: #928374;
+	--syn-str: #b8bb26;
+	--syn-num: #d3869b;
+	--syn-key: #fb5643;
+	--syn-fn: #83a598;
+	--syn-punc: #d5c4a1;
 	--surface: #1d2021;
 	--raised: #3c3836;
 	--line: #504945;
@@ -311,6 +421,13 @@
 /* VS Code Dark Modern, https://github.com/microsoft/vscode */
 [data-theme='vscode-dark-modern'] {
 	--bg: #1f1f1f;
+	/* Token colours of the Dark+ grammar that Dark Modern inherits. */
+	--syn-com: #6a9955;
+	--syn-str: #ce9178;
+	--syn-num: #b5cea8;
+	--syn-key: #569cd9;
+	--syn-fn: #dcdcaa;
+	--syn-punc: #d4d4d4;
 	--surface: #181818;
 	--raised: #2b2b2b;
 	--line: #3c3c3c;
@@ -580,7 +697,7 @@ button:disabled * {
 	@apply rounded-sm bg-raised px-1 py-0.5 font-mono text-[0.85em] text-code;
 }
 .md pre {
-	@apply overflow-x-auto rounded-card border border-line bg-raised p-3 text-[0.8125rem];
+	@apply overflow-x-auto rounded-card border border-line bg-code-bg p-3 text-[0.8125rem];
 }
 .md pre code {
 	@apply font-mono;
@@ -614,24 +731,25 @@ button:disabled * {
 	@apply text-faint;
 }
 
-/* Syntax tokens for fenced code, classes are set by the regex highlighter */
+/* Syntax tokens for fenced code, classes are set by the regex highlighter.
+   Each palette sets the --syn-* values, see the theme blocks above. */
 .tok-key {
-	color: color-mix(in oklab, var(--accent) 80%, var(--fg));
+	color: var(--syn-key);
 	font-weight: 600;
 }
 .tok-str {
-	color: var(--ok);
+	color: var(--syn-str);
 }
 .tok-num {
-	color: color-mix(in oklab, var(--danger) 75%, var(--fg));
+	color: var(--syn-num);
 }
 .tok-com {
-	color: var(--faint);
+	color: var(--syn-com);
 	font-style: italic;
 }
 .tok-fn {
-	color: color-mix(in oklab, var(--accent) 60%, var(--fg));
+	color: var(--syn-fn);
 }
 .tok-punc {
-	color: var(--muted);
+	color: var(--syn-punc);
 }

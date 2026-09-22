@@ -290,6 +290,146 @@ describe('palettes', () => {
 	});
 });
 
+/**
+ * Fenced code takes its colours from the upstream palette of each theme, so these
+ * tests read the syntax tokens straight back out of the stylesheet. The classes
+ * themselves come from highlightCode in src/lib/shared/markdown.ts.
+ */
+describe('fenced code colours', () => {
+	function themeBlock(id: string): string {
+		const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+		const match = new RegExp(`^\\[data-theme='${escaped}'\\]\\s*\\{([^}]*)\\}`, 'm').exec(appCss);
+		if (!match) throw new Error(`no stylesheet block for theme ${id}`);
+		return match[1];
+	}
+
+	function token(block: string, name: string): string | undefined {
+		return new RegExp(`--${name}:\\s*(#[0-9a-fA-F]{6})`).exec(block)?.[1];
+	}
+
+	function luminance(hex: string): number {
+		const value = hex.replace('#', '');
+		const channels = [0, 2, 4].map((at) => {
+			const c = Number.parseInt(value.slice(at, at + 2), 16) / 255;
+			return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+		});
+		return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
+	}
+
+	function contrast(a: string, b: string): number {
+		const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+		return (light + 0.05) / (dark + 0.05);
+	}
+
+	/** The six roles the highlighter emits. Comments are de-emphasised on purpose. */
+	const roles = ['syn-com', 'syn-str', 'syn-num', 'syn-key', 'syn-fn', 'syn-punc'];
+	const bar = { 'syn-com': 3, 'syn-str': 4.5, 'syn-num': 4.5, 'syn-key': 4.5, 'syn-fn': 4.5, 'syn-punc': 4.5 };
+
+	it('sets every role in each self contained palette', () => {
+		for (const id of variantIds()) {
+			// The default palette and OLED follow the accent, so they keep the derived tokens.
+			if (id === 'sloppy' || id === 'oled') continue;
+			const block = themeBlock(id);
+			for (const role of roles) {
+				expect(token(block, role), `${id} ${role}`).toBeDefined();
+			}
+		}
+	});
+
+	/** Fenced code sits on --code-bg, which every palette keeps at its own background. */
+	it('keeps every syntax role readable on the code background', () => {
+		for (const id of variantIds()) {
+			const block = themeBlock(id);
+			const bg = token(block, 'bg')!;
+			for (const role of roles) {
+				const colour = token(block, role);
+				if (!colour) continue;
+				expect(contrast(colour, bg), `${id} ${role}`).toBeGreaterThanOrEqual(bar[role as keyof typeof bar]);
+			}
+		}
+	});
+
+	it('keeps the derived defaults readable in the dark mode block', () => {
+		const dark = /^\[data-mode='dark'\]\s*\{([^}]*)\}/m.exec(appCss)?.[1] ?? '';
+		expect(dark).not.toMatch(/--syn-/); // defaults stay in :root, so modes share them
+		const root = /^:root\s*\{([^}]*)\}/m.exec(appCss)?.[1] ?? '';
+		for (const role of roles) {
+			expect(root, `default ${role}`).toContain(`--${role}:`);
+		}
+		expect(root).toContain('--code-bg: var(--bg)');
+	});
+
+	/** One spot check per palette family, against the value the upstream theme uses. */
+	it('takes the colours from the upstream palettes', () => {
+		const upstream: Record<string, [string, string][]> = {
+			// rose-pine.org palette guide: gold strings, rose numbers, iris keywords.
+			'rose-pine': [
+				['syn-str', '#f6c177'],
+				['syn-num', '#ebbcba'],
+				['syn-key', '#c4a7e7']
+			],
+			// catppuccin/vim: String green, Number peach (Constant), Statement mauve.
+			'catppuccin-mocha': [
+				['syn-str', '#a6e3a1'],
+				['syn-num', '#fab387'],
+				['syn-key', '#cba6f7']
+			],
+			// folke/tokyonight.nvim prism extra: string green, keyword purple, function blue.
+			'tokyo-night': [
+				['syn-str', '#9ece6a'],
+				['syn-key', '#9d7cd8'],
+				['syn-fn', '#7aa2f7']
+			],
+			// morhetz/gruvbox: String green, Number purple, Statement red, Identifier blue.
+			'gruvbox-dark': [
+				['syn-str', '#b8bb26'],
+				['syn-num', '#d3869b'],
+				['syn-fn', '#83a598']
+			],
+			// arcticicestudio/nord-highlightjs: string nord14, keyword nord9, function nord8.
+			'nord': [
+				['syn-str', '#a3be8c'],
+				['syn-key', '#81a1c1'],
+				['syn-fn', '#88c0d0']
+			],
+			// microsoft/vscode Dark+ grammar: string, keyword, function colours.
+			'vscode-dark-modern': [
+				['syn-str', '#ce9178'],
+				['syn-key', '#569cd9'],
+				['syn-fn', '#dcdcaa']
+			],
+			// microsoft/vscode Light+ grammar.
+			'vscode-light-modern': [
+				['syn-str', '#a31515'],
+				['syn-key', '#0000ff'],
+				['syn-fn', '#795e26']
+			]
+		};
+		for (const [id, pairs] of Object.entries(upstream)) {
+			const block = themeBlock(id);
+			for (const [role, hex] of pairs) {
+				expect(token(block, role), `${id} ${role}`).toBe(hex);
+			}
+		}
+	});
+
+	it('wires the highlighter classes and the code background', () => {
+		const flat = appCss.replace(/\s+/g, ' ');
+		for (const [cls, role] of [
+			['key', 'syn-key'],
+			['str', 'syn-str'],
+			['num', 'syn-num'],
+			['com', 'syn-com'],
+			['fn', 'syn-fn'],
+			['punc', 'syn-punc']
+		]) {
+			expect(flat, `.tok-${cls}`).toContain(`.tok-${cls} { color: var(--${role});`);
+		}
+		expect(appCss).toMatch(/--color-code-bg:\s*var\(--code-bg\)/);
+		expect(appCss, 'fenced code background').toMatch(/\.md pre\s*\{[^}]*bg-code-bg/);
+	});
+});
+
 describe('light and dark variants', () => {
 	it('follows the system preference for a family with both variants', () => {
 		const light = stubs({ dark: false });
