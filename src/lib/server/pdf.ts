@@ -75,59 +75,72 @@ export async function extractPdf(bytes: Uint8Array, options: PdfOptions): Promis
 		throw new PdfError(`Could not open the PDF: ${err instanceof Error ? err.message : String(err)}`);
 	}
 
-	const pageCount = document.countPages();
-	if (!pageCount) throw new PdfError('The PDF has no pages');
+	try {
+		const pageCount = document.countPages();
+		if (!pageCount) throw new PdfError('The PDF has no pages');
 
-	const maxTextPages = options.maxTextPages ?? MAX_TEXT_PAGES;
-	const maxCharsPerPage = options.maxCharsPerPage ?? MAX_CHARS_PER_PAGE;
-	const pages: { page: number; text: string }[] = [];
-	const textParts: string[] = [];
-	const images: PdfPageImage[] = [];
-	const targetEdge = options.targetEdge ?? TARGET_EDGE;
-	const quality = options.quality ?? 80;
+		const maxTextPages = options.maxTextPages ?? MAX_TEXT_PAGES;
+		const maxCharsPerPage = options.maxCharsPerPage ?? MAX_CHARS_PER_PAGE;
+		const pages: { page: number; text: string }[] = [];
+		const textParts: string[] = [];
+		const images: PdfPageImage[] = [];
+		const targetEdge = options.targetEdge ?? TARGET_EDGE;
+		const quality = options.quality ?? 80;
 
-	for (let index = 0; index < Math.min(pageCount, maxTextPages); index++) {
-		const page = document.loadPage(index);
-		let text = '';
-		try {
-			text = cleanText(page.toStructuredText('').asText());
-		} catch {
-			// A page with broken fonts can fail to produce text; keep going.
-			text = '';
+		for (let index = 0; index < Math.min(pageCount, maxTextPages); index++) {
+			const page = document.loadPage(index);
+			let text = '';
+			try {
+				const stext = page.toStructuredText('');
+				try {
+					text = cleanText(stext.asText());
+				} finally {
+					stext.destroy();
+				}
+			} catch {
+				// A page with broken fonts can fail to produce text; keep going.
+				text = '';
+			} finally {
+				page.destroy();
+			}
+			if (text.length > maxCharsPerPage) text = `${text.slice(0, maxCharsPerPage)}\n[page truncated]`;
+			if (text) {
+				pages.push({ page: index + 1, text });
+				textParts.push(`--- page ${index + 1} ---\n${text}`);
+			}
 		}
-		if (text.length > maxCharsPerPage) text = `${text.slice(0, maxCharsPerPage)}\n[page truncated]`;
-		if (text) {
-			pages.push({ page: index + 1, text });
-			textParts.push(`--- page ${index + 1} ---\n${text}`);
+
+		for (let index = 0; index < Math.min(pageCount, Math.max(0, options.maxImages)); index++) {
+			const page = document.loadPage(index);
+			try {
+				const bounds = page.getBounds();
+				const width = Math.max(1, bounds[2] - bounds[0]);
+				const height = Math.max(1, bounds[3] - bounds[1]);
+				// Keep small pages crisp and large pages inside the limit.
+				const scale = Math.min(2.5, Math.max(0.5, targetEdge / Math.max(width, height)));
+				const pixmap = page.toPixmap(mupdf.Matrix.scale(scale, scale), mupdf.ColorSpace.DeviceRGB, false, true);
+				try {
+					images.push({
+						page: index + 1,
+						mime: 'image/jpeg',
+						bytes: new Uint8Array(pixmap.asJPEG(quality)),
+						width: pixmap.getWidth(),
+						height: pixmap.getHeight()
+					});
+				} finally {
+					pixmap.destroy();
+				}
+			} catch {
+				// Leave the page out rather than failing the whole upload.
+			} finally {
+				page.destroy();
+			}
 		}
+
+		return { pageCount, text: textParts.join('\n\n'), pages, images };
+	} finally {
+		// mupdf keeps the whole file in its own memory, so the document goes with
+		// the pages: a page or a document left behind is memory that never returns.
+		document.destroy();
 	}
-
-	for (let index = 0; index < Math.min(pageCount, Math.max(0, options.maxImages)); index++) {
-		const page = document.loadPage(index);
-		try {
-			const bounds = page.getBounds();
-			const width = Math.max(1, bounds[2] - bounds[0]);
-			const height = Math.max(1, bounds[3] - bounds[1]);
-			// Keep small pages crisp and large pages inside the limit.
-			const scale = Math.min(2.5, Math.max(0.5, targetEdge / Math.max(width, height)));
-			const pixmap = page.toPixmap(
-				mupdf.Matrix.scale(scale, scale),
-				mupdf.ColorSpace.DeviceRGB,
-				false,
-				true
-			);
-			images.push({
-				page: index + 1,
-				mime: 'image/jpeg',
-				bytes: new Uint8Array(pixmap.asJPEG(quality)),
-				width: pixmap.getWidth(),
-				height: pixmap.getHeight()
-			});
-			pixmap.destroy();
-		} catch {
-			// Leave the page out rather than failing the whole upload.
-		}
-	}
-
-	return { pageCount, text: textParts.join('\n\n'), pages, images };
 }
