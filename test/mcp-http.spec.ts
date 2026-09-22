@@ -72,6 +72,32 @@ const mock = createServer((req, res) => {
 		if (message.method === 'tools/call') {
 			const name = message.params?.name;
 			if (name === 'stall') return;
+			if (name === 'crlf') {
+				// A server whose lines end with CRLF, closing without a blank line.
+				res.writeHead(200, { 'content-type': 'text/event-stream' });
+				res.write(
+					`data: ${JSON.stringify({
+						jsonrpc: '2.0',
+						id: message.id,
+						result: { content: [{ type: 'text', text: 'crlf: ok' }] }
+					})}\r\n\r\n`
+				);
+				res.end();
+				return;
+			}
+			if (name === 'trailing') {
+				// The frame has no blank line of its own before the stream closes.
+				res.writeHead(200, { 'content-type': 'text/event-stream' });
+				res.write(
+					`data: ${JSON.stringify({
+						jsonrpc: '2.0',
+						id: message.id,
+						result: { content: [{ type: 'text', text: 'last frame' }] }
+					})}`
+				);
+				res.end();
+				return;
+			}
 			if (name === 'boom') {
 				json(res, { jsonrpc: '2.0', id: message.id, error: { code: -32000, message: 'boom' } });
 				return;
@@ -120,6 +146,26 @@ describe('the Streamable HTTP connection', () => {
 		try {
 			const answer = await connection.callTool('echo', { text: 'hi' });
 			expect(answer.content).toEqual([{ type: 'text', text: 'echo: hi' }]);
+		} finally {
+			connection.close();
+		}
+	});
+
+	it('reads an event stream whose lines end with CRLF', async () => {
+		const connection = await HttpConnection.connect(server());
+		try {
+			const answer = await connection.callTool('crlf', {});
+			expect(answer.content).toEqual([{ type: 'text', text: 'crlf: ok' }]);
+		} finally {
+			connection.close();
+		}
+	});
+
+	it('reads the last frame when the stream ends without a blank line', async () => {
+		const connection = await HttpConnection.connect(server());
+		try {
+			const answer = await connection.callTool('trailing', {});
+			expect(answer.content).toEqual([{ type: 'text', text: 'last frame' }]);
 		} finally {
 			connection.close();
 		}

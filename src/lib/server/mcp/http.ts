@@ -1,4 +1,5 @@
 import type { McpServer } from '$lib/shared/types';
+import { frameData, sseFrames } from '../sse-read';
 import {
 	DEFAULT_TIMEOUT_MS,
 	PROTOCOL_VERSION,
@@ -138,32 +139,16 @@ export class HttpConnection implements McpConnection {
 
 /** Reads the reply out of an event stream. A notification carries no id. */
 async function readEventStream(res: Response): Promise<JsonRpcReply | undefined> {
-	const reader = res.body?.getReader();
-	if (!reader) return undefined;
-	const decoder = new TextDecoder();
-	let buffer = '';
 	let last: JsonRpcReply | undefined;
-	for (;;) {
-		const { done, value } = await reader.read();
-		if (done) break;
-		buffer += decoder.decode(value, { stream: true });
-		let cut = buffer.indexOf('\n\n');
-		while (cut !== -1) {
-			const frame = buffer.slice(0, cut);
-			buffer = buffer.slice(cut + 2);
-			for (const line of frame.split('\n')) {
-				if (!line.startsWith('data:')) continue;
-				const body = line.slice(5).trim();
-				if (!body) continue;
-				try {
-					const parsed = JSON.parse(body) as JsonRpcReply;
-					if (parsed.id !== undefined) return parsed;
-					last = parsed;
-				} catch {
-					/* keep reading: a server may send keep alive comments */
-				}
+	for await (const frame of sseFrames(res)) {
+		for (const body of frameData(frame)) {
+			try {
+				const parsed = JSON.parse(body) as JsonRpcReply;
+				if (parsed.id !== undefined) return parsed;
+				last = parsed;
+			} catch {
+				/* keep reading: a server may send keep alive comments */
 			}
-			cut = buffer.indexOf('\n\n');
 		}
 	}
 	return last;

@@ -1,4 +1,5 @@
 import { getDocument, getImage } from './store';
+import { frameData, sseFrames } from './sse-read';
 import { textFileBlock } from '$lib/shared/files';
 import type { Message, ModelInfo, Provider, RuntimeTimings, UpstreamTool, Usage } from '$lib/shared/types';
 
@@ -266,31 +267,10 @@ function jsonArgs(args: unknown): string {
 
 /** Yields the JSON payload of each `data:` line of an SSE response body. */
 export async function* sseData(res: Response, signal?: AbortSignal): AsyncGenerator<string> {
-	if (!res.body) return;
-	const reader = res.body.getReader();
-	const decoder = new TextDecoder();
-	let buffer = '';
-	signal?.addEventListener('abort', () => void reader.cancel().catch(() => {}));
-	try {
-		for (;;) {
-			const { done, value } = await reader.read();
-			if (done) break;
-			buffer += decoder.decode(value, { stream: true });
-			// SSE frames are separated by a blank line; lines may use CRLF.
-			let cut = buffer.indexOf('\n\n');
-			while (cut !== -1) {
-				const frame = buffer.slice(0, cut);
-				buffer = buffer.slice(cut + 2);
-				for (const line of frame.split(/\r?\n/)) {
-					if (!line.startsWith('data:')) continue;
-					const payload = line.slice(5).replace(/^ /, '');
-					if (payload && payload !== '[DONE]') yield payload;
-				}
-				cut = buffer.indexOf('\n\n');
-			}
+	for await (const frame of sseFrames(res, signal)) {
+		for (const payload of frameData(frame)) {
+			if (payload !== '[DONE]') yield payload;
 		}
-	} finally {
-		reader.releaseLock();
 	}
 }
 
