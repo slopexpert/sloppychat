@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AppState } from '$lib/client/state.svelte';
-import type { Conversation, ProviderDTO } from '$lib/shared/types';
+import type { Conversation, Message, ProviderDTO } from '$lib/shared/types';
 
 /**
  * What the composer keeps and what it throws away. A file belongs to the chat it
@@ -57,6 +57,7 @@ vi.mock('$lib/client/api', () => {
 });
 
 const { AppState: Runtime } = await import('$lib/client/state.svelte');
+const { api } = await import('$lib/client/api');
 
 function chat(id: string, patch: Partial<Conversation> = {}): Conversation {
 	const item: Conversation = {
@@ -130,6 +131,38 @@ describe('attachments of one chat', () => {
 
 		expect(state.conversation?.id, 'another chat takes the view').toBe('c2');
 		expect(state.pendingAttachments.c1).toBeUndefined();
+	});
+});
+
+describe('a message list that arrives late', () => {
+	it('stays off the chat that is open now', async () => {
+		const first = chat('c1');
+		const second = chat('c2');
+		const state = freshState(first);
+		const older: Message = {
+			id: 'm1',
+			conversationId: 'c1',
+			role: 'user',
+			text: 'from the chat that was open',
+			images: [],
+			createdAt: new Date(0).toISOString()
+		};
+		// The reply for the first chat takes its time, and the user moves on.
+		let release: (() => void) | undefined;
+		vi.mocked(api.getConversation).mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					release = () => resolve({ conversation: first, messages: [older], queued: [] });
+				})
+		);
+
+		const late = state.refreshMessages();
+		await state.open(second.id);
+		release?.();
+		await late;
+
+		expect(state.conversation?.id).toBe('c2');
+		expect(state.messages, 'the chat that is open keeps its own list').toEqual([]);
 	});
 });
 

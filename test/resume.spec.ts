@@ -37,11 +37,16 @@ vi.mock('$lib/client/api', () => {
 			fetchPage: vi.fn()
 		},
 		getStream: vi.fn(
-			async (url: string, _signal: AbortSignal, onEvent: (event: StreamEvent) => void) => {
+			async (url: string, signal: AbortSignal, onEvent: (event: StreamEvent) => void) => {
 				calls.streams.push({ url, method: 'GET' });
 				for (const event of attachScript) {
 					onEvent(event);
 					afterEvent?.();
+				}
+				// A turn that is still running holds the attach stream open, so a test can
+				// see the state the way a live page sees it mid turn.
+				if (!attachScript.some((event) => event.type === 'done' || event.type === 'idle')) {
+					await new Promise<void>((resolve) => signal.addEventListener('abort', () => resolve()));
 				}
 			}
 		),
@@ -247,14 +252,29 @@ describe('resuming after a reload', () => {
 		]);
 		// open() fills the list before it resumes, so the prompt is known here.
 		app.messages = state.messages;
-		await app.resume();
+		const resuming = app.resume();
+		await new Promise((resolve) => setTimeout(resolve, 0));
 		// Nothing has arrived, so this is still the prefill phase.
 		expect(app.prefilling).toBe(true);
 		// The rate needs a moment of data before it means anything.
 		await new Promise((resolve) => setTimeout(resolve, 350));
 		expect(app.prefillRate).toBeGreaterThan(0);
 		app.detach();
+		await resuming;
 		expect(app.prefilling).toBe(false);
+	});
+
+	it('stops measuring the prefill when the turn it watched ends', async () => {
+		// The page arrived while the prompt was still reading, then the turn ended.
+		attachScript = [
+			{ type: 'snapshot', messageId: 'a1', text: '', reasoning: '', toolCalls: [], running: true },
+			{ type: 'done', finishReason: 'stop', messageId: 'a1' }
+		];
+		const app = freshState([message({ role: 'user', text: 'a long prompt to read' })]);
+		await app.resume();
+
+		expect(app.prefilling, 'watching ended, so the ticking ends with it').toBe(false);
+		expect(app.prefillRate).toBeUndefined();
 	});
 
 	it('adopts the id from a snapshot that precedes any start event', async () => {

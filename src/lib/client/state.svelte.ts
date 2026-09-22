@@ -467,6 +467,9 @@ export class AppState {
 			this.#controller = null;
 			this.liveMessageId = null;
 			this.liveRate = undefined;
+			// A snapshot may have found the turn reading its prompt, which starts the
+			// prefill rate. Watching stops here, so the ticking stops with it.
+			this.stopPrefillTimer();
 			await this.refreshMessages().catch(() => {});
 		}
 		if (controller.signal.aborted) return;
@@ -671,8 +674,12 @@ export class AppState {
 	}
 
 	async refreshMessages(): Promise<void> {
-		if (!this.conversation) return;
-		const { messages, queued } = await api.getConversation(this.conversation.id);
+		const id = this.conversation?.id;
+		if (!id) return;
+		const { messages, queued } = await api.getConversation(id);
+		// A reply that comes back after the user moved on belongs to the chat it
+		// asked for, so it must not land on this one.
+		if (this.conversation?.id !== id) return;
 		this.messages = messages;
 		// The queue lives on the server, so this is what any window shows.
 		this.queued = queued ?? [];
