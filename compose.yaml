@@ -1,0 +1,40 @@
+# One service, one volume. The whole app state is a single SQLite file, so that
+# volume is the backup and the restore.
+
+services:
+  sloppychat:
+    image: sloppychat:local
+    build: .
+    restart: unless-stopped
+    ports:
+      - '3000:3000'
+    environment:
+      # Required. Every request inside a container arrives from the bridge address,
+      # so the door has nothing it can recognise as this machine. Without a token the
+      # image answers 403 to everything, including your own browser.
+      SLOPPYCHAT_TOKEN: ${SLOPPYCHAT_TOKEN:?make one with: openssl rand -hex 24}
+      # Set when the app sits behind a proxy, for example https://chat.example.com
+      # ORIGIN: https://chat.example.com
+    volumes:
+      - sloppychat-data:/app/data
+    # The app needs no privileges: it binds 3000 and talks to providers.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      # A 401 from the door is a healthy server that is holding the door shut.
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/').then((r) => process.exit(r.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  sloppychat-data:
