@@ -285,13 +285,17 @@ async function streamIntoAssistant(
 		result.timings
 	);
 
+	// A stream that ended without a finish reason was cut short: an abort, or a
+	// connection that died. The text is not a finished answer, so the row says so.
+	const cut = !result.finishReason;
+
 	finalizeMessage(assistantId, {
 		// A continued answer keeps what it already had, then adds the rest.
 		text: seed.text + result.content,
 		reasoning: seed.reasoning + (result.reasoning || '') || undefined,
 		toolCalls: toolCalls.length ? toolCalls : [],
-		usage,
-		finishReason: result.finishReason ?? 'stop'
+		usage: cut ? { ...usage, interrupted: true } : usage,
+		finishReason: result.finishReason ?? 'aborted'
 	});
 	for (const call of toolCalls) {
 		w.send({ type: 'tool_call', call });
@@ -331,6 +335,10 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 		payload.add_generation_prompt = false;
 	}
 
+	// A continued answer grows one row. The text each round wrote has to be handed
+	// to the next round, or that round writes over the answer before it.
+	let carry = seed ? { text: seed.text, reasoning: seed.reasoning ?? '' } : undefined;
+
 	for (let round = 0; ; round++) {
 		const assistant = seed
 			? seed
@@ -341,14 +349,7 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 
 		let result: { toolCalls: ToolCall[]; finishReason: string; usage: Usage };
 		try {
-			result = await streamIntoAssistant(
-				provider,
-				payload,
-				assistant.id,
-				w,
-				signal,
-				seed ? { text: seed.text, reasoning: seed.reasoning ?? '' } : undefined
-			);
+			result = await streamIntoAssistant(provider, payload, assistant.id, w, signal, carry);
 		} catch (err) {
 			const message = errorMessage(err);
 			// Partial text is already in the database, so a reload shows what arrived.
@@ -363,6 +364,11 @@ export async function runTurn(req: TurnRequest, w: SseWriter, signal: AbortSigna
 		if (signal.aborted) {
 			w.send({ type: 'done', finishReason: 'aborted', messageId: assistant.id });
 			return;
+		}
+		if (carry) {
+			// The row now holds every round so far, so the next one adds to that.
+			const grown = getMessage(assistant.id);
+			carry = { text: grown?.text ?? carry.text, reasoning: grown?.reasoning ?? carry.reasoning };
 		}
 		if (!result.toolCalls.length) {
 			w.send({ type: 'done', finishReason: result.finishReason, usage: result.usage, messageId: assistant.id });

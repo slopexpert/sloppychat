@@ -19,6 +19,8 @@ process.env.SLOPPYCHAT_DATA_DIR = mkdtempSync(join(tmpdir(), 'sloppychat-turn-')
 interface Reply {
 	content: string;
 	toolCalls?: { id: string; name: string; argsText: string }[];
+	/** The reason the provider reported. Nothing means the stream simply ended. */
+	finishReason?: string | null;
 }
 
 /** The answers of the provider, in order, and the number of calls. */
@@ -56,7 +58,8 @@ vi.mock('$lib/server/openai', () => ({
 			reasoning: '',
 			toolCalls: reply.toolCalls ?? [],
 			usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 },
-			finishReason: reply.toolCalls?.length ? 'tool_calls' : 'stop'
+			finishReason:
+				reply.finishReason === undefined ? (reply.toolCalls?.length ? 'tool_calls' : 'stop') : reply.finishReason
 		};
 	}),
 	toUpstreamMessages: vi.fn(() => [{ role: 'user', content: 'hello' }])
@@ -390,6 +393,23 @@ describe('continuing an answer', () => {
 		expect(messages.at(-1)?.finishReason).toBe('stop');
 	});
 
+	it('keeps what the first tool round of it said', async () => {
+		// Two rounds grow one row: the first asks for a tool and says something on
+		// the way, the second finishes the answer.
+		replies = [{ content: ' Let me look that up.', toolCalls: [skillCall] }, { content: ' The notes are merged.' }];
+		const conversationId = startConversation();
+		const answer = store.appendMessage({ conversationId, role: 'assistant', text: 'cut off' });
+		store.finalizeMessage(answer.id, { text: 'cut off', finishReason: 'length' });
+
+		hub.startTurn({ conversationId, continueMessageId: answer.id });
+		await settle(conversationId);
+
+		const grown = store.getMessage(answer.id);
+		expect(grown?.text, 'the round that came after must not write the first one out').toBe(
+			'cut off Let me look that up. The notes are merged.'
+		);
+	});
+
 	it('asks a server that can do it to carry the answer on', async () => {
 		replies = [{ content: ' more' }];
 		const conversationId = startConversation();
@@ -400,5 +420,33 @@ describe('continuing an answer', () => {
 
 		expect(payloads.at(-1)?.continue_final_message).toBe(true);
 		expect(payloads.at(-1)?.add_generation_prompt).toBe(false);
+	});
+});
+
+describe('an answer whose stream ends without a reason', () => {
+	it('is stored as interrupted rather than as a clean stop', async () => {
+		// An abort or a dropped connection ends the stream with nothing said why.
+		replies = [{ content: 'half an ans', finishReason: null }];
+		const conversationId = startConversation();
+
+		hub.startTurn({ conversationId });
+		await settle(conversationId);
+
+		const last = store.listMessages(conversationId).at(-1);
+		expect(last?.role).toBe('assistant');
+		expect(last?.finishReason, 'nothing said the answer finished').toBe('aborted');
+		expect(last?.usage?.interrupted).toBe(true);
+	});
+
+	it('leaves an answer that finished unmarked', async () => {
+		replies = [{ content: 'a whole answer' }];
+		const conversationId = startConversation();
+
+		hub.startTurn({ conversationId });
+		await settle(conversationId);
+
+		const last = store.listMessages(conversationId).at(-1);
+		expect(last?.finishReason).toBe('stop');
+		expect(last?.usage?.interrupted, 'a clean finish is not an interruption').toBeUndefined();
 	});
 });
