@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
+import { stopTurn } from '$lib/server/hub';
 import {
 	deleteConversation,
 	getConversation,
@@ -35,6 +36,8 @@ export const PATCH = (async ({ params, request }) => {
 }) satisfies RequestHandler;
 
 export const DELETE = (async ({ params }) => {
+	// The turn writes into these rows, so it stops before they go.
+	stopTurn(params.id);
 	deleteConversation(params.id);
 	return Response.json({ ok: true });
 }) satisfies RequestHandler;

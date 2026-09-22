@@ -28,6 +28,11 @@ export function isTurnRunning(conversationId: string): boolean {
 	return turns.has(conversationId);
 }
 
+/** A turn that fails outside its own body has no stream left to report to. */
+function logTurnFailure(conversationId: string, err: unknown): void {
+	console.error(`[turn] the turn of ${conversationId} failed outside its body`, err);
+}
+
 /** Stops the running turn for a conversation, and drops its waiting messages. */
 export function stopTurn(conversationId: string): boolean {
 	// Stop is the user's decision, so the queue goes with the turn.
@@ -60,6 +65,8 @@ function begin(
 		done: Promise.resolve()
 	};
 	turns.set(conversationId, turn);
+	// A client that never attached would leave this rejection bare, so log it here.
+	turn.done.catch((err) => logTurnFailure(conversationId, err));
 
 	const writer: SseWriter = {
 		send(event) {
