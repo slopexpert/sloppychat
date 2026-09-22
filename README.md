@@ -217,6 +217,27 @@ A PDF attached to a message is processed on the server with mupdf (WASM):
 | `ORIGIN` | Public origin, needed behind a proxy |
 | `SLOPPYCHAT_DATA_DIR` | Directory for the database, default `./var` |
 | `SLOPPYCHAT_DB` | Full path to the database file, overrides the directory |
+| `SLOPPYCHAT_TOKEN` | Token every device must send to reach the app. Unset means loopback only |
+
+## Who may open the app
+
+The server has one door, and `SLOPPYCHAT_TOKEN` is the key to it:
+
+- **Token set.** A device opens `http://<host>:<port>/?token=<token>` once. The server
+  puts the token in an `HttpOnly` cookie and drops it from the address, so the browser
+  history keeps no copy. Every later request, the chat stream included, rides on the
+  cookie.
+- **Token unset.** The server answers `127.0.0.1` and refuses every other address with
+  403. Starting the app on a shared machine therefore shares nothing by accident.
+
+The token is checked with a hash and a fixed-time compare, so neither its length nor
+where a guess differs is readable from the timing. Set it to anything long enough to
+not be guessed, for example `openssl rand -hex 24`.
+
+Secrets stay on the server. A provider key, the search key, and the environment and
+headers of an MCP server are never sent to the browser: the settings window says "is
+set, type to replace" and writes only what you type. Clearing one takes the Remove key
+button, or an empty value where the app sends one on purpose.
 
 ## web_fetch safety
 
