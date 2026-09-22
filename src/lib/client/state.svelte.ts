@@ -1,12 +1,12 @@
 import {
 	DEFAULT_PARAMS,
-	DEFAULT_SETTINGS,
+	DEFAULT_SETTINGS_DTO,
 	DEFAULT_THEME,
 	type ChatHit,
 	type Conversation,
 	type Folder,
 	type McpServerConfig,
-	type McpServerState,
+	type McpServerStateDTO,
 	type McpToolInfo,
 	type DocumentRef,
 	type ImageRef,
@@ -15,6 +15,8 @@ import {
 	type ProviderDTO,
 	type QueuedMessage,
 	type Settings,
+	type SettingsDTO,
+	type SettingsPatch,
 	type StreamEvent,
 	type ThemeSettings,
 	type ToolCall,
@@ -77,7 +79,7 @@ function isPlainText(file: File): boolean {
 
 export class AppState {
 	ready = $state(false);
-	settings = $state<Settings>(structuredClone(DEFAULT_SETTINGS));
+	settings = $state<SettingsDTO>(structuredClone(DEFAULT_SETTINGS_DTO));
 	providers = $state<ProviderDTO[]>([]);
 	conversations = $state<Conversation[]>([]);
 	conversation = $state<Conversation | null>(null);
@@ -126,7 +128,7 @@ export class AppState {
 	#searchTimer: ReturnType<typeof setTimeout> | undefined;
 
 	/** The MCP servers with their state and their tools. */
-	mcpServers = $state<McpServerState[]>([]);
+	mcpServers = $state<McpServerStateDTO[]>([]);
 	mcpLoading = $state(false);
 	/**
 	 * Exact prompt tokens for the open chat, from the provider's own tokenizer.
@@ -651,9 +653,10 @@ export class AppState {
 	}
 
 	/** Tries a server without saving it, and reports what it answered. */
-	async testMcpServer(name: string, config: McpServerConfig): Promise<string> {
+	/** Asks the server to try one saved server, because only it holds the config. */
+	async testMcpServer(id: string): Promise<string> {
 		try {
-			const { tools } = await api.testMcpServer({ name, config });
+			const { tools } = await api.testMcpServer(id);
 			const names = tools.map((tool) => tool.name);
 			return names.length ? `${tools.length} tools: ${names.join(', ')}` : 'The server offers no tools';
 		} catch (err) {
@@ -1250,7 +1253,7 @@ export class AppState {
 
 	/* --------------------------------------------------------------- settings */
 
-	async saveSettings(patch: Partial<Settings>): Promise<void> {
+	async saveSettings(patch: SettingsPatch): Promise<void> {
 		try {
 			const saved = await api.saveSettings(patch);
 			this.settings = saved;

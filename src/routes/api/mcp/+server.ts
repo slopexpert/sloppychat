@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
+import { toMcpDTO } from '$lib/server/dto';
 import { parseCursorConfig } from '$lib/shared/mcp';
 import { createMcpServer } from '$lib/server/store';
 import { mcpStates } from '$lib/server/mcp/registry';
@@ -7,12 +8,13 @@ import type { McpServerConfig } from '$lib/shared/types';
 
 /**
  * The MCP servers. GET reports each server with its state and its tools, and
- * POST adds one, either from a single entry or from a pasted Cursor config.
+ * POST adds one, either from a single entry or from a pasted Cursor config. The
+ * environment and header values of a config stay on the server.
  */
 
 export const GET = (async ({ url }) => {
 	const refresh = url.searchParams.get('refresh') === '1';
-	return Response.json({ servers: await mcpStates(refresh) });
+	return Response.json({ servers: (await mcpStates(refresh)).map(toMcpDTO) });
 }) satisfies RequestHandler;
 
 export const POST = (async ({ request }) => {
@@ -25,7 +27,7 @@ export const POST = (async ({ request }) => {
 			return bad(err instanceof Error ? err.message : 'That config could not be read');
 		}
 		const servers = parsed.map((entry) => createMcpServer({ name: entry.name, config: entry.config }));
-		return Response.json({ servers }, { status: 201 });
+		return Response.json({ servers: servers.map(toMcpDTO) }, { status: 201 });
 	}
 	const name = (input.name ?? '').trim();
 	const config = input.config;
@@ -36,5 +38,5 @@ export const POST = (async ({ request }) => {
 	if (config.transport === 'stdio' && !config.command?.trim()) return bad('A command is required');
 	if (config.transport === 'http' && !config.url?.trim()) return bad('A url is required');
 	const server = createMcpServer({ name, config });
-	return Response.json({ server }, { status: 201 });
+	return Response.json({ server: toMcpDTO(server) }, { status: 201 });
 }) satisfies RequestHandler;

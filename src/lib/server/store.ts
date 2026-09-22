@@ -1,5 +1,5 @@
 import { all, newId, now, one, run, runChanges, tx } from './db';
-import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type ChatHit, type Conversation, type Folder, type McpServer, type McpServerConfig, type Message, type Provider, type QueuedMessage, type Settings } from '$lib/shared/types';
+import { DEFAULT_PARAMS, DEFAULT_SETTINGS, type ChatHit, type Conversation, type Folder, type McpServer, type McpServerConfig, type Message, type Provider, type QueuedMessage, type Settings, type SettingsPatch } from '$lib/shared/types';
 import { migrateToolModes } from '$lib/shared/tools';
 import type { Skill } from '$lib/shared/skills';
 import { promptDescription, promptTitle, type PromptEntry, type PromptKind } from '$lib/shared/prompts';
@@ -137,7 +137,7 @@ function normalizeTools(
 	};
 }
 
-export function saveSettings(patch: Partial<Settings>): Settings {
+export function saveSettings(patch: SettingsPatch): Settings {
 	const next = {
 		...getSettings(),
 		...patch,

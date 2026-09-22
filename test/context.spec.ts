@@ -4,7 +4,7 @@ import ContextGauge from '$lib/components/ContextGauge.svelte';
 import { app } from '$lib/client/state.svelte';
 import { contextWindowFor } from '$lib/shared/context';
 import { withReportedWindow } from '$lib/server/tokens';
-import { DEFAULT_SETTINGS } from '$lib/shared/types';
+import { DEFAULT_SETTINGS_DTO } from '$lib/shared/types';
 import type { Conversation, Message, ModelInfo } from '$lib/shared/types';
 
 /** The window table and the gauge that uses it. */
@@ -63,7 +63,7 @@ function seed(model: string, models: ModelInfo[], usage?: Message['usage']) {
 		createdAt: new Date(0).toISOString(),
 		updatedAt: new Date(0).toISOString()
 	};
-	app.settings = structuredClone(DEFAULT_SETTINGS);
+	app.settings = structuredClone(DEFAULT_SETTINGS_DTO);
 	app.conversation = conversation;
 	app.providers = [
 		{
@@ -124,8 +124,8 @@ describe('ContextGauge', () => {
 		// No messages and no system prompt.
 		app.messages = [];
 		app.settings = {
-			...structuredClone(DEFAULT_SETTINGS),
-			generation: { ...DEFAULT_SETTINGS.generation, system: '' }
+			...structuredClone(DEFAULT_SETTINGS_DTO),
+			generation: { ...DEFAULT_SETTINGS_DTO.generation, system: '' }
 		};
 		expect(render(ContextGauge).body).not.toContain('progressbar');
 	});

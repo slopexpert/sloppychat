@@ -9,12 +9,15 @@ import type {
 	ImageRef,
 	McpServer,
 	McpServerConfig,
-	McpServerState,
+	McpServerDTO,
+	McpServerStateDTO,
 	Message,
 	ModelInfo,
 	ProviderDTO,
 	QueuedMessage,
 	Settings,
+	SettingsDTO,
+	SettingsPatch,
 	StreamEvent,
 	ToolResult
 } from '$lib/shared/types';
@@ -50,9 +53,10 @@ async function request<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-	getSettings: () => request<Settings>('/api/settings'),
-	saveSettings: (patch: Partial<Settings>) =>
-		request<Settings>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
+	/** The settings, with the search key left on the server. */
+	getSettings: () => request<SettingsDTO>('/api/settings'),
+	saveSettings: (patch: SettingsPatch) =>
+		request<SettingsDTO>('/api/settings', { method: 'PUT', body: JSON.stringify(patch) }),
 
 	listProviders: () => request<{ providers: ProviderDTO[] }>('/api/providers'),
 	createProvider: (input: Partial<ProviderDTO> & { apiKey?: string }) =>
@@ -93,20 +97,21 @@ export const api = {
 			body: JSON.stringify({ chatId, ontoChatId })
 		}),
 
-	/** MCP servers, their state and their tools. */
+	/** MCP servers, their state and their tools. Their secrets stay server side. */
 	listMcpServers: (refresh = false) =>
-		request<{ servers: McpServerState[] }>(`/api/mcp${refresh ? '?refresh=1' : ''}`),
+		request<{ servers: McpServerStateDTO[] }>(`/api/mcp${refresh ? '?refresh=1' : ''}`),
 	createMcpServer: (input: { name: string; config: McpServerConfig }) =>
-		request<{ server: McpServer }>('/api/mcp', { method: 'POST', body: JSON.stringify(input) }),
+		request<{ server: McpServerDTO }>('/api/mcp', { method: 'POST', body: JSON.stringify(input) }),
 	importMcpServers: (json: string) =>
-		request<{ servers: McpServer[] }>('/api/mcp', { method: 'POST', body: JSON.stringify({ json }) }),
+		request<{ servers: McpServerDTO[] }>('/api/mcp', { method: 'POST', body: JSON.stringify({ json }) }),
 	updateMcpServer: (id: string, patch: { name?: string; enabled?: boolean; config?: McpServerConfig }) =>
-		request<{ server: McpServer }>(`/api/mcp/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
+		request<{ server: McpServerDTO }>(`/api/mcp/${id}`, { method: 'PATCH', body: JSON.stringify(patch) }),
 	deleteMcpServer: (id: string) => request<{ ok: true }>(`/api/mcp/${id}`, { method: 'DELETE' }),
-	testMcpServer: (input: { name: string; config: McpServerConfig }) =>
+	/** Asks the server to try one saved server, since only it holds the config. */
+	testMcpServer: (id: string) =>
 		request<{ tools: { name: string; description?: string }[] }>('/api/mcp/test', {
 			method: 'POST',
-			body: JSON.stringify(input)
+			body: JSON.stringify({ id })
 		}),
 
 	/** The exact prompt count for a conversation, when the provider counts tokens. */

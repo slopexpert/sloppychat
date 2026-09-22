@@ -3,7 +3,7 @@
 	import { app, applyTheme } from '$lib/client/state.svelte';
 	import { api } from '$lib/client/api';
 	import { DEFAULT_PARAMS } from '$lib/shared/types';
-	import type { McpServerState, ThemeSettings } from '$lib/shared/types';
+	import type { McpServerStateDTO, ThemeSettings } from '$lib/shared/types';
 	import { resolveTheme, THEMES } from '$lib/shared/themes';
 	import ParamsForm from './ParamsForm.svelte';
 	import Icon from './Icon.svelte';
@@ -102,12 +102,13 @@
 	}
 
 	/** Tries a saved server without changing it, and shows what it answered. */
-	async function testMcp(server: McpServerState) {
-		mcpNote = `${server.name}: ${await app.testMcpServer(server.name, server.config)}`;
+	async function testMcp(server: McpServerStateDTO) {
+		// The server holds the config, so the page only names the server to try.
+		mcpNote = `${server.name}: ${await app.testMcpServer(server.id)}`;
 	}
 
 	/** The one line that says where a server comes from. */
-	function describeMcp(server: McpServerState): string {
+	function describeMcp(server: McpServerStateDTO): string {
 		const config = server.config;
 		if (config.transport === 'http') return config.url ?? '';
 		return [config.command, ...(config.args ?? [])].filter(Boolean).join(' ');
@@ -604,26 +605,25 @@
 								placeholder="http://localhost:8888"
 								value={app.settings.search.url}
 								onchange={(event) =>
-									save({
-										search: {
-											...app.settings.search,
-											url: (event.currentTarget as HTMLInputElement).value.trim()
-										}
-									})}
+									save({ search: { url: (event.currentTarget as HTMLInputElement).value.trim() } })}
 							/>
 							<input
 								class="field text-sm"
 								type="password"
-								placeholder="API key, optional"
-								value={app.settings.search.apiKey}
-								onchange={(event) =>
-									save({
-										search: {
-											...app.settings.search,
-											apiKey: (event.currentTarget as HTMLInputElement).value
-										}
-									})}
+								placeholder={app.settings.search.hasKey ? 'API key is set, type to replace' : 'API key, optional'}
+								value=""
+								onchange={(event) => {
+									// The key never comes back to the page, so an empty field says nothing:
+									// only a typed key replaces the one that is stored.
+									const value = (event.currentTarget as HTMLInputElement).value;
+									if (value) save({ search: { apiKey: value } });
+								}}
 							/>
+							{#if app.settings.search.hasKey}
+							<button class="btn text-xs" onclick={() => save({ search: { apiKey: '' } })}>
+								Remove key
+							</button>
+							{/if}
 							<label class="text-xs text-muted">
 								Results per search
 								<input
@@ -633,12 +633,7 @@
 									max="10"
 									value={app.settings.search.maxResults}
 									onchange={(event) =>
-										save({
-											search: {
-												...app.settings.search,
-												maxResults: Number((event.currentTarget as HTMLInputElement).value) || 5
-											}
-										})}
+										save({ search: { maxResults: Number((event.currentTarget as HTMLInputElement).value) || 5 } })}
 								/>
 							</label>
 							<p class="text-xs text-faint">

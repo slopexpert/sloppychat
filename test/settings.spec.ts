@@ -88,11 +88,32 @@ describe('a settings patch', () => {
 		expect((await current()).tools.maxRounds).toBe(7);
 	});
 
-	it('keeps the search key it was given, and the round cap with it', async () => {
+	it('keeps the search key on the server, and the round cap with it', async () => {
 		const saved = await put({ search: { url: 'http://192.168.1.5:8080/search', apiKey: 'sekret' } });
-		expect(saved.search.apiKey).toBe('sekret');
+
 		expect(saved.search.url).toBe('http://192.168.1.5:8080/search');
 		expect(saved.tools.maxRounds).toBe(7);
+		// The page learns only that a key is set, the same way it learns about a provider.
+		expect(saved.search.hasKey).toBe(true);
+		expect(JSON.stringify(saved), 'the answer carries no key').not.toContain('sekret');
+		expect(store.getSettings().search.apiKey).toBe('sekret');
+	});
+
+	it('keeps the stored key when a patch says nothing about it', async () => {
+		await put({ search: { apiKey: 'sekret' } });
+
+		await put({ search: { maxResults: 9 } });
+
+		expect(store.getSettings().search.apiKey).toBe('sekret');
+	});
+
+	it('drops the key when the page asks to remove it', async () => {
+		await put({ search: { apiKey: 'sekret' } });
+
+		const saved = await put({ search: { apiKey: '' } });
+
+		expect(store.getSettings().search.apiKey).toBe('');
+		expect(saved.search.hasKey).toBe(false);
 	});
 });
 

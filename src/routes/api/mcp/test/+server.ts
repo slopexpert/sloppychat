@@ -1,26 +1,22 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
+import { getMcpServer } from '$lib/server/store';
 import { StdioConnection } from '$lib/server/mcp/stdio';
 import { HttpConnection } from '$lib/server/mcp/http';
-import type { McpServerConfig } from '$lib/shared/types';
 
 /**
- * Tries a config before it is saved: connect, list the tools and close again.
- * The answer is what the settings window shows next to the Test button.
+ * Tries a saved server: connect, list the tools and close again. The answer is
+ * what the settings window shows next to the Test button. The server reads the
+ * stored config itself, so a config with its tokens never travels to the browser.
  */
 
 export const POST = (async ({ request }) => {
-	const input = await body<{ name?: string; config?: McpServerConfig }>(request);
-	const config = input.config;
-	if (!config) return bad('A config is required');
-	const server = {
-		id: 'test',
-		name: input.name?.trim() || 'test',
-		enabled: true,
-		config,
-		createdAt: new Date().toISOString(),
-		updatedAt: new Date().toISOString()
-	};
+	const input = await body<{ id?: string }>(request);
+	const id = (input.id ?? '').trim();
+	if (!id) return bad('The id of a saved server is required');
+	const server = getMcpServer(id);
+	if (!server) return bad('MCP server not found', 404);
+	const config = server.config;
 	const connection =
 		config.transport === 'http' ? await HttpConnection.connect(server).catch((err) => err) : await StdioConnection.connect(server).catch((err) => err);
 	if (connection instanceof Error) return bad(connection.message, 502);

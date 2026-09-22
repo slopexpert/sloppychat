@@ -1,5 +1,6 @@
 import type { RequestHandler } from './$types';
 import { bad, body } from '$lib/server/http';
+import { toMcpDTO } from '$lib/server/dto';
 import { deleteMcpServer, getMcpServer, updateMcpServer } from '$lib/server/store';
 import { forgetMcpServer } from '$lib/server/mcp/registry';
 import type { McpServerConfig } from '$lib/shared/types';
@@ -14,12 +15,13 @@ export const PATCH = (async ({ params, request }) => {
 	}
 	// Any change needs a fresh connection with the new settings.
 	forgetMcpServer(params.id);
-	const server = updateMcpServer(params.id, {
+	const updated = updateMcpServer(params.id, {
 		name: input.name?.trim() || undefined,
 		enabled: input.enabled,
 		config: input.config
 	});
-	return Response.json({ server });
+	if (!updated) return bad('MCP server not found', 404);
+	return Response.json({ server: toMcpDTO(updated) });
 }) satisfies RequestHandler;
 
 export const DELETE = (async ({ params }) => {

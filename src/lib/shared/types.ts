@@ -230,6 +230,12 @@ export interface SearchConfig {
 	maxResults: number;
 }
 
+/**
+ * The search endpoint as the browser sees it. The key stays on the server: the
+ * page learns only whether one is set, the same way a provider reports hasKey.
+ */
+export type SearchConfigDTO = Omit<SearchConfig, 'apiKey'> & { hasKey: boolean };
+
 export type ReasoningEffort = 'auto' | 'low' | 'medium' | 'high';
 export type ToolChoice = 'auto' | 'none' | 'required';
 
@@ -340,6 +346,35 @@ export const DEFAULT_SETTINGS: Settings = {
 	},
 	defaults: { providerId: null, model: null }
 };
+
+/** A settings patch: each section carries only what the user touched. */
+export type SettingsPatch = {
+	theme?: Partial<ThemeSettings>;
+	search?: Partial<SearchConfig>;
+	generation?: Partial<GenerationParams>;
+	tools?: Partial<Settings['tools']>;
+	defaults?: Partial<Settings['defaults']>;
+};
+
+/** The settings as one answer, with the search key taken out. */
+export type SettingsDTO = Omit<Settings, 'search'> & { search: SearchConfigDTO };
+
+/** The defaults in the shape the browser gets, so the store starts in type. */
+export const DEFAULT_SETTINGS_DTO: SettingsDTO = {
+	...DEFAULT_SETTINGS,
+	search: { url: '', maxResults: DEFAULT_SETTINGS.search.maxResults, hasKey: false }
+};
+
+/** MCP secrets never travel: the environment and header values stay server side. */
+export type McpServerConfigDTO = Omit<McpServerConfig, 'env' | 'headers'>;
+
+export interface McpServerDTO extends Omit<McpServer, 'config'> {
+	config: McpServerConfigDTO;
+}
+
+export interface McpServerStateDTO extends Omit<McpServerState, 'config'> {
+	config: McpServerConfigDTO;
+}
 
 /** Stream events sent from the chat endpoint to the browser over SSE. */
 export type StreamEvent =
