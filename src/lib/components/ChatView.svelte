@@ -1,7 +1,10 @@
 <script lang="ts">
 	import MessageItem from './MessageItem.svelte';
+	import Icon from './Icon.svelte';
 	import { app } from '$lib/client/state.svelte';
 	import { isApproveKey } from '$lib/client/tools';
+	import { quoteBlock } from '$lib/shared/markdown';
+	import { quoteSpot } from '$lib/shared/selection';
 	import { formatPrefillStats } from '$lib/shared/stats';
 	import type { Message } from '$lib/shared/types';
 
@@ -34,8 +37,44 @@
 			.find((call) => app.toolProgress[call.id]?.state === 'ask')
 	);
 
+	/**
+	 * Text the reader selected inside the conversation, with the spot for the chip
+	 * that quotes it. Nothing is offered for a selection elsewhere, such as the
+	 * chat list, because that text is not part of an answer.
+	 */
+	let selection = $state<{ text: string; x: number; y: number } | null>(null);
+
+	/** Where the selection sits, in viewport coords, above it when there is room. */
+	function selectedInChat(): { text: string; x: number; y: number } | null {
+		const value = window.getSelection?.();
+		const text = value?.toString() ?? '';
+		if (!value || !text.trim() || !value.rangeCount) return null;
+		const node = value.anchorNode;
+		const element = node instanceof Element ? node : node?.parentElement;
+		if (!element?.closest('[id^="message-"]')) return null;
+		const rect = value.getRangeAt(0).getBoundingClientRect();
+		return { text, ...quoteSpot(rect, window.innerWidth) };
+	}
+
+	/** Quotes the selection into the message box, then lets go of it. */
+	function quoteSelection() {
+		if (!selection) return;
+		app.quoteIntoComposer(quoteBlock(selection.text));
+		selection = null;
+		window.getSelection()?.removeAllRanges();
+	}
+
 	/** Enter allows the waiting tool once, so the keyboard alone can go on. */
 	function onKeydown(event: KeyboardEvent) {
+		if (event.altKey && !event.ctrlKey && !event.metaKey && event.key.toLowerCase() === 'q') {
+			if (!selection) {
+				app.toast('info', 'Select text in the chat first');
+				return;
+			}
+			event.preventDefault();
+			quoteSelection();
+			return;
+		}
 		if (!waiting || !isApproveKey(event)) return;
 		event.preventDefault();
 		void app.approve(waiting, 'allow');
@@ -67,7 +106,22 @@
 	function onScroll() {
 		if (!list) return;
 		pinned = list.scrollHeight - list.scrollTop - list.clientHeight < 140;
+		// The chip is placed in viewport coordinates, so a scroll leaves it behind.
+		if (selection) selection = null;
 	}
+
+	// The chip tracks the selection while it lives inside the conversation.
+	$effect(() => {
+		const sync = () => (selection = selectedInChat());
+		document.addEventListener('selectionchange', sync);
+		return () => document.removeEventListener('selectionchange', sync);
+	});
+
+	// Another chat has nothing selected worth quoting.
+	$effect(() => {
+		void app.conversation?.id;
+		selection = null;
+	});
 
 	// A search hit asks for one message: the view scrolls to it, and stops
 	// following the bottom while the reader looks at it.
@@ -95,6 +149,21 @@
 </script>
 
 <svelte:window onkeydown={onKeydown} />
+
+{#if selection}
+	<!-- The mouse keeps the selection because the press is swallowed here. -->
+	<button
+		class="fixed z-30 flex items-center gap-1 rounded-card border border-line bg-surface px-2 py-1 text-xs text-fg shadow-lg"
+		style="left: {selection.x}px; top: {selection.y}px"
+		onmousedown={(event) => event.preventDefault()}
+		onclick={quoteSelection}
+		title="Quote the selection in the message box, or press Alt+Q"
+		aria-label="Quote the selection in the message box"
+	>
+		<Icon name="messageSquare" size={12} />
+		Quote
+	</button>
+{/if}
 
 <div
 	class="min-h-0 flex-1 overflow-y-auto"

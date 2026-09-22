@@ -182,6 +182,11 @@ Text leaves the chat in four ways:
 - any message quotes into the message box. With a selection inside that message the
   selection is quoted, otherwise the whole text. The quote lands below what is already
   typed, the caret goes to the end, and the field takes focus
+- drag across a few words in the chat and a small Quote chip floats beside them. `Alt+Q`
+  does the same from the keyboard. A selection outside the conversation, such as in the chat
+  list, gets no chip
+- the chip lets go on its own: it disappears when the selection is cleared, when the
+  conversation scrolls, and when you switch chat
 - an open attachment keeps a copy button for the text that was sent
 
 ## PDF handling
