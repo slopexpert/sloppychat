@@ -8,6 +8,31 @@ import type { Message, ModelInfo, Provider, RuntimeTimings, UpstreamTool, Usage 
  * Everything upstream specific lives in this file so providers stay pluggable.
  */
 
+/** How long a provider may take to start answering, in milliseconds. */
+const ANSWER_WAIT_MS = 30_000;
+
+/**
+ * A wait limit for one request. A provider that is up but busy takes a moment;
+ * a provider that is gone would hold the turn open for as long as the process
+ * lives. The limit covers the wait for the answer to start: once the answer has
+ * started, only the caller ends it.
+ */
+function waitAnswer(caller?: AbortSignal): { signal: AbortSignal; answered(): void } {
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() => controller.abort(new Error(`The provider did not answer in ${ANSWER_WAIT_MS / 1000} s`)),
+		ANSWER_WAIT_MS
+	);
+	// The listener goes away with the abort it waits for, and both the signal and
+	// this request belong to one turn, so it cannot outlive the turn.
+	const onCaller = () => controller.abort(caller?.reason);
+	caller?.addEventListener('abort', onCaller, { once: true });
+	return {
+		signal: controller.signal,
+		answered: () => clearTimeout(timer)
+	};
+}
+
 export interface UpstreamContentPart {
 	type: 'text' | 'image_url';
 	text?: string;
@@ -121,10 +146,11 @@ function firstPositive(...sources: Record<string, unknown>[]): number | undefine
 }
 
 export async function listModels(provider: Provider, signal?: AbortSignal): Promise<ModelInfo[]> {
+	const wait = waitAnswer(signal);
 	const res = await fetch(apiUrl(provider.baseUrl, '/models'), {
 		headers: authHeaders(provider),
-		signal
-	});
+		signal: wait.signal
+	}).finally(() => wait.answered());
 	if (!res.ok) throw new Error(await httpError(res, `Model list for ${provider.name}`));
 	const body = asRecord(await res.json());
 	const raw = body.data ?? body.models ?? body;
@@ -325,12 +351,13 @@ export async function streamChat(
 	onDelta: (delta: { content?: string; reasoning?: string; tokens?: number }) => void,
 	signal?: AbortSignal
 ): Promise<UpstreamChunk> {
+	const wait = waitAnswer(signal);
 	const res = await fetch(apiUrl(provider.baseUrl, '/chat/completions'), {
 		method: 'POST',
 		headers: authHeaders(provider),
 		body: JSON.stringify(payload),
-		signal
-		});
+		signal: wait.signal
+	}).finally(() => wait.answered());
 	if (!res.ok) throw new Error(await httpError(res, `Request to ${provider.name}`));
 
 	const contentType = res.headers.get('content-type') ?? '';
