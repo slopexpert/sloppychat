@@ -1,5 +1,5 @@
 import type { StreamEvent, ToolCall } from '$lib/shared/types';
-import { runTurn, type TurnRequest } from './bridge';
+import { runTurn, TurnError, type TurnRequest } from './bridge';
 import { pendingApproval } from './approvals';
 import type { SseWriter } from './sse';
 import { appendMessage, clearQueued, finalizeMessage, getMessage, maybeTitleFromFirstMessage, takeQueued } from './store';
@@ -89,7 +89,12 @@ function begin(
 		try {
 			await run(writer, controller.signal);
 		} catch (err) {
-			writer.send({ type: 'error', message: err instanceof Error ? err.message : String(err) });
+			// A TurnError is a setup problem, so restarting the turn cannot fix it.
+			writer.send({
+				type: 'error',
+				message: err instanceof Error ? err.message : String(err),
+				fatal: err instanceof TurnError
+			});
 		} finally {
 			if (controller.signal.aborted) markInterrupted(turn);
 			turns.delete(conversationId);

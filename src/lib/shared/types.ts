@@ -366,7 +366,8 @@ export type StreamEvent =
 	| { type: 'tool_ask'; call: ToolCall }
 	| { type: 'done'; finishReason: string; usage?: Usage; messageId: string }
 	| { type: 'notice'; message: string }
-	| { type: 'error'; message: string };
+	/** An error the client must not start over: fatal says restarting cannot help. */
+	| { type: 'error'; message: string; fatal?: boolean };
 
 export interface ToolResult {
 	toolCallId: string;

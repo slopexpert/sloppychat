@@ -50,6 +50,14 @@ vi.mock('$lib/client/api', () => {
 				calls.streams.push({ url, body, method: 'POST' });
 				for (const event of postScript) {
 					onEvent(event);
+					// The answer row is in the database once the turn ends, so the page
+					// is not owed a restart afterwards.
+					if (event.type === 'done') {
+						state.messages = [
+							...state.messages,
+							message({ role: 'assistant', id: event.messageId, text: 'answered' })
+						];
+					}
 					afterEvent?.();
 				}
 			}

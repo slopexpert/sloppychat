@@ -56,6 +56,10 @@ export type { QueuedMessage };
 
 const THEME_KEY = 'sloppychat:theme';
 const TOAST_MS = 7000;
+/** Turns in a row this page may start over on its own after a failure. */
+const MAX_RESTARTS = 3;
+/** Wait before such a restart, multiplied by the tries so far. */
+const RESTART_MS = 250;
 
 export function errorText(err: unknown): string {
 	if (err instanceof Error) return err.name === 'AbortError' ? 'Cancelled' : err.message;
@@ -101,6 +105,10 @@ export class AppState {
 	/** Rough prompt size for the turn in flight, used for the prefill rate. */
 	#promptTokens = 0;
 	#requestStartedAt = 0;
+	/** Turns this page started over in a row without any progress. */
+	#restarts = 0;
+	/** Set when a turn said a restart cannot help, or the budget ran out. */
+	#restartRefused = false;
 	#prefillTicker: ReturnType<typeof setInterval> | undefined;
 	toolProgress = $state<Record<string, ToolProgress>>({});
 	toasts = $state<Toast[]>([]);
@@ -368,6 +376,7 @@ export class AppState {
 			// Picking a chat in the drawer means the drawer has done its job.
 			if (this.narrow) this.closeSidebar();
 			// Pick up a turn that is still running, on this device or another one.
+			this.#allowRestart();
 			void this.resume();
 		} catch (err) {
 			this.toast('error', errorText(err));
@@ -473,13 +482,13 @@ export class AppState {
 			);
 			const waiting = (last.toolCalls ?? []).some((call) => !answered.has(call.id));
 			if (!waiting) return;
-			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
+		} else if (last.role !== 'user' && last.role !== 'tool') {
+			// A trailing system row or nothing to answer.
 			return;
 		}
-		// A trailing user or tool message means no answer was ever produced.
-		if (last.role === 'user' || last.role === 'tool') {
-			await this.runLoop({ url: '/api/chat', body: this.turnBody() });
-		}
+		// The turn is wanted, so spend one try of the budget and wait a moment.
+		if (!(await this.#mayRestart())) return;
+		await this.runLoop({ url: '/api/chat', body: this.turnBody() });
 	}
 
 	/**
@@ -676,6 +685,7 @@ export class AppState {
 	 * so the chat keeps one answer instead of two.
 	 */
 	async continueAnswer(messageId: string): Promise<void> {
+		if (this.#busy()) return;
 		await this.runLoop({
 			url: '/api/chat',
 			body: { ...this.turnBody(), continueMessageId: messageId }
@@ -700,6 +710,7 @@ export class AppState {
 	 * line goes back to the question first and the new answer hangs off it.
 	 */
 	async retry(): Promise<void> {
+		if (this.#busy()) return;
 		const index = [...this.messages].reverse().findIndex((m) => m.role === 'user');
 		if (index === -1) return;
 		const userIndex = this.messages.length - 1 - index;
@@ -724,6 +735,7 @@ export class AppState {
 	 */
 	async editAndResend(messageId: string, text: string): Promise<void> {
 		if (!this.conversation) return;
+		if (this.#busy()) return;
 		const original = this.messages.find((message) => message.id === messageId);
 		if (!original) return;
 		try {
@@ -866,6 +878,8 @@ export class AppState {
 			this.toast('error', errorText(err));
 			return false;
 		}
+		// A send is the user asking again, so the restart budget starts fresh.
+		this.#allowRestart();
 		await this.runLoop({ url: '/api/chat', body: this.turnBody() });
 		return true;
 	}
@@ -917,9 +931,36 @@ export class AppState {
 		}
 	}
 
+	/** One stream per page: a second attach would double every delta it receives. */
+	#busy(): boolean {
+		if (!this.running) return false;
+		this.toast('info', 'Wait for the answer in flight to finish');
+		return true;
+	}
+
+	/** A turn that got somewhere, or a message the user sent, refills the budget. */
+	#allowRestart(): void {
+		this.#restarts = 0;
+		this.#restartRefused = false;
+	}
+
+	/** True when this page may start a turn on its own, after a short wait. */
+	async #mayRestart(): Promise<boolean> {
+		if (this.#restartRefused) return false;
+		if (this.#restarts >= MAX_RESTARTS) {
+			this.#restartRefused = true;
+			this.toast('error', `Stopped retrying after ${MAX_RESTARTS} turns that made no progress`);
+			return false;
+		}
+		this.#restarts++;
+		await new Promise((resolve) => setTimeout(resolve, RESTART_MS * this.#restarts));
+		return true;
+	}
+
 	/** Streams one turn. The server runs the tools and continues on its own. */
 	private async runLoop(payload: { url: string; body: unknown }): Promise<void> {
 		if (!this.conversation) return;
+		if (this.running) return;
 		this.running = true;
 		this.#controller = new AbortController();
 		const signal = this.#controller.signal;
@@ -960,6 +1001,8 @@ export class AppState {
 				this.liveMessageId = event.messageId;
 				this.turnRunning = true;
 				this.liveRate = undefined;
+				// A turn that started made progress, so the budget is owed again.
+				this.#allowRestart();
 				// A repeated start for a row the snapshot already gave us: keep the
 				// counters so the live rate does not restart from zero.
 				if (this.messages.some((message) => message.id === event.messageId)) break;
@@ -1018,6 +1061,8 @@ export class AppState {
 				break;
 			case 'error':
 				this.turnRunning = false;
+				// A fatal error is a setup problem, so starting over cannot fix it.
+				if (event.fatal) this.#restartRefused = true;
 				this.toast('error', event.message);
 				break;
 		}

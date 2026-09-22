@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ToolCall } from '$lib/shared/types';
+import type { StreamEvent, ToolCall } from '$lib/shared/types';
 
 /**
  * The turn loop belongs to the server: the model asks for a tool, the server
@@ -107,6 +107,26 @@ beforeEach(() => {
 			body: '# Release notes\n\nCollect the merged pull requests.'
 		});
 	}
+});
+
+describe('a turn that cannot start', () => {
+	it('tells the client that a restart cannot help', async () => {
+		const provider = store.createProvider({
+			name: 'Mock',
+			baseUrl: 'http://127.0.0.1:1/v1',
+			enabled: false
+		});
+		const conversation = store.createConversation({ providerId: provider.id, model: 'mock-model' });
+		store.appendMessage({ conversationId: conversation.id, role: 'user', text: 'hello' });
+		const events: StreamEvent[] = [];
+
+		hub.startTurn({ conversationId: conversation.id });
+		hub.subscribe(conversation.id, { send: (event) => events.push(event), close() {} });
+		await settle(conversation.id);
+
+		// The page must stop restarting a turn that a disabled provider refuses.
+		expect(events).toContainEqual({ type: 'error', message: expect.any(String), fatal: true });
+	});
 });
 
 describe('a turn that asks for a tool', () => {
