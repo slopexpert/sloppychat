@@ -208,6 +208,56 @@ describe('live reasoning', () => {
 	});
 });
 
+/** An attachment carries the message, so an empty bubble only looks broken. */
+describe('a user message with only attachments', () => {
+	const doc = { id: 'd1', name: 'src/app.ts', pages: 0, lines: 2, chars: 25 };
+	const shot = { id: 'i1', mime: 'image/png', name: 'shot.png' };
+
+	it('draws no bubble when there is no text', () => {
+		const body = renderMessage(userMessage('', { documents: [doc] }), false);
+		expect(body).not.toContain('bg-accent px-3.5');
+		expect(body).toContain('src/app.ts');
+	});
+
+	it('draws no bubble for an image only message either', () => {
+		const body = renderMessage(userMessage('', { images: [shot] }), false);
+		expect(body).not.toContain('bg-accent px-3.5');
+		expect(body).toContain('/api/images/i1');
+	});
+
+	it('keeps the bubble when text comes along', () => {
+		const body = renderMessage(userMessage('read it', { documents: [doc] }), false);
+		expect(body).toContain('bg-accent px-3.5');
+		expect(body).toContain('read it');
+	});
+
+	it('leaves the delete action reachable without text', () => {
+		const body = renderMessage(userMessage('', { documents: [doc] }), false);
+		expect(body).toContain('Delete this message and the rest');
+	});
+});
+
+/** One answer can be taken as markdown, as plain text, or quoted under a question. */
+describe('the copy targets', () => {
+	it('gives an answer the source, the plain text and a quote', () => {
+		const body = renderMessage(assistant({ text: 'The answer is 4.' }), false);
+		expect(body).toContain('Copy the answer');
+		expect(body).toContain('Copy the answer without the markup');
+		expect(body).toContain('Quote this answer in the message box');
+	});
+
+	it('gives a question a copy and a quote', () => {
+		const body = renderMessage(userMessage('What about this'), false);
+		expect(body).toContain('Copy this message');
+		expect(body).toContain('Quote this message in the message box');
+	});
+
+	it('keeps the copy targets away from an answer that is still empty', () => {
+		const body = renderMessage(assistant({ text: '', reasoning: '' }), false);
+		expect(body).not.toContain('Quote this answer');
+	});
+});
+
 describe('ToolList', () => {
 	it('shows the tool id and a three way switch', () => {
 		const { body } = render(ToolList);

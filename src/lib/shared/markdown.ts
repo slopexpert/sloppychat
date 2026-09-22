@@ -211,12 +211,20 @@ export function highlightCode(code: string, lang: string): string {
 	return out;
 }
 
+/**
+ * Copy button of a fenced block. It lives in the markup so every block gets one,
+ * and the click is caught by the container in Markdown.svelte. The block text is
+ * read back from the code element, which holds it exactly as written.
+ */
+const COPY_BUTTON =
+	'<button type="button" class="md-copy absolute right-2 top-2 rounded-card border border-line bg-surface/90 px-1.5 py-0.5 text-[0.65rem] text-faint opacity-0 transition-opacity hover:text-fg focus-visible:opacity-100 group-hover:opacity-100" aria-label="Copy the code" title="Copy the code">Copy</button>';
+
 function codeBlock(code: string, lang: string, options: RenderOptions): string {
 	const language = (lang || options.defaultLang || '').replace(/[^\w+#-]/g, '').slice(0, 20);
 	const body =
 		options.highlight === false ? escapeHtml(code) : highlightCode(code, language);
 	const label = language ? `<div class="mb-1 text-xs text-faint">${escapeHtml(language)}</div>` : '';
-	return `<pre class="md-code">${label}<code>${body}</code></pre>`;
+	return `<div class="group relative">${COPY_BUTTON}<pre class="md-code">${label}<code>${body}</code></pre></div>`;
 }
 
 /* ------------------------------------------------------------------- blocks */
@@ -424,6 +432,18 @@ export function renderMarkdown(input: string, options: RenderOptions = {}): stri
 }
 
 /** Plain text with markup removed, used for titles and previews. */
+/**
+ * Turns text into a block quote for the message box, one marker per line. Lines
+ * that already carry one are left alone, so quoting a quote does not stack.
+ */
+export function quoteBlock(input: string): string {
+	return input
+		.replace(/\s+$/g, '')
+		.split('\n')
+		.map((line) => (line.trimStart().startsWith('>') ? line : `> ${line}`.trimEnd()))
+		.join('\n');
+}
+
 export function stripMarkdown(input: string): string {
 	return input
 		.replace(/```[\s\S]*?```/g, ' ')

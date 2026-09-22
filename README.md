@@ -47,6 +47,8 @@ Single user chat UI for any OpenAI compatible endpoint. SvelteKit, Tailwind, sql
   `/notes draft this` leaves as the prompt text plus the rest of the line. The menu lists the
   slug only, and Tab inserts the picked entry while you type, with its first blank selected.
   A system prompt is offered by the params panel of any chat
+- Copy where you need it: every fenced block has its own copy button, an answer copies as
+  markdown or as plain text, and any message or selection quotes into the message box
 - Images: attach, paste or drop them, stored in sqlite and inlined for vision models
 - PDFs: text is extracted page by page and pages are rendered to images, so text only
   models get the text and vision models also get the pages
@@ -168,6 +170,19 @@ all read, so they cannot disagree:
 - every attachment in the chat opens with a caret to show the text that was sent, with a copy
   button. The text is read back from sqlite, so an old chat stays reviewable after the
   original file is gone
+
+## Copying and quoting
+
+Text leaves the chat in four ways:
+
+- every fenced block carries a copy button in its top right corner, shown on hover and
+  always visible on touch. It takes the code exactly as written, without the language label
+- an answer copies as markdown, which is the stored text, and as plain text, which drops the
+  markup for a terminal or a log
+- any message quotes into the message box. With a selection inside that message the
+  selection is quoted, otherwise the whole text. The quote lands below what is already
+  typed, the caret goes to the end, and the field takes focus
+- an open attachment keeps a copy button for the text that was sent
 
 ## PDF handling
 

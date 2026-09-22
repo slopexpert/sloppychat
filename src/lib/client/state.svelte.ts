@@ -130,6 +130,11 @@ export class AppState {
 	uploading = $state(false);
 	showSettings = $state(false);
 	showParams = $state(false);
+	/**
+	 * Text a message hands to the message box, quoted. The composer takes it once
+	 * and sets this back to nothing, so a quote is never applied twice.
+	 */
+	pendingQuote = $state<string | null>(null);
 	sidebarOpen = $state(true);
 	/** True on a narrow viewport, where the chat list becomes a drawer. */
 	narrow = $state(false);
@@ -387,6 +392,12 @@ export class AppState {
 
 	async renameConversation(title: string): Promise<void> {
 		await this.patchConversation({ title });
+	}
+
+	/** Puts text into the message box as a quote, ready to add a comment under it. */
+	quoteIntoComposer(text: string): void {
+		this.pendingQuote = text;
+		if (this.narrow) this.closeSidebar();
 	}
 
 	/* --------------------------------------------------------------- messages */

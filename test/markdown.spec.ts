@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderMarkdown, stripMarkdown } from '$lib/shared/markdown';
+import { quoteBlock, renderMarkdown, stripMarkdown } from '$lib/shared/markdown';
 
 describe('renderMarkdown', () => {
 	it('escapes html so model output cannot inject markup', () => {
@@ -86,5 +86,35 @@ describe('renderMarkdown', () => {
 describe('stripMarkdown', () => {
 	it('removes markup for previews', () => {
 		expect(stripMarkdown('# Title\n\n**bold** [link](https://x.test)')).toBe('Title bold link');
+	});
+});
+
+describe('the copy button of a fence', () => {
+	it('rides on every fenced block', () => {
+		const html = renderMarkdown('```js\nconst a = 1;\n```');
+		expect(html).toContain('class="md-copy');
+		expect(html).toContain('aria-label="Copy the code"');
+	});
+
+	it('leaves a plain paragraph alone', () => {
+		expect(renderMarkdown('Just words.')).not.toContain('md-copy');
+	});
+});
+
+describe('quoteBlock', () => {
+	it('marks every line', () => {
+		expect(quoteBlock('one\ntwo')).toBe('> one\n> two');
+	});
+
+	it('does not stack a marker on a quote', () => {
+		expect(quoteBlock('> already')).toBe('> already');
+	});
+
+	it('drops the trailing blank lines', () => {
+		expect(quoteBlock('text\n\n\n')).toBe('> text');
+	});
+
+	it('leaves an empty line empty inside the quote', () => {
+		expect(quoteBlock('a\n\nb')).toBe('> a\n>\n> b');
 	});
 });

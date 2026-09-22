@@ -4,6 +4,7 @@
 	import Icon from './Icon.svelte';
 	import { api } from '$lib/client/api';
 	import { app } from '$lib/client/state.svelte';
+	import { quoteBlock, stripMarkdown } from '$lib/shared/markdown';
 	import type { ToolProgress } from '$lib/client/tools';
 	import { formatBriefStats, formatUsageLine, usageTooltip } from '$lib/shared/stats';
 	import type { Message } from '$lib/shared/types';
@@ -52,6 +53,7 @@
 	let editing = $state(false);
 	let draft = $state('');
 	let copied = $state(false);
+	let copiedPlain = $state(false);
 	/**
 	 * Attachment content by id: no key means closed, null means the text is on its
 	 * way in, an object is what to show.
@@ -88,6 +90,30 @@
 		await navigator.clipboard.writeText(message.text);
 		copied = true;
 		setTimeout(() => (copied = false), 1500);
+	}
+
+	/** The same answer without the markup, for a terminal or a plain editor. */
+	async function copyPlain() {
+		await navigator.clipboard.writeText(stripMarkdown(message.text));
+		copiedPlain = true;
+		setTimeout(() => (copiedPlain = false), 1500);
+	}
+
+	/**
+	 * What a quote takes: the selection inside this message when there is one, so
+	 * an answer can be answered part by part, otherwise the whole text.
+	 */
+	function quoteSource(): string {
+		const selection = window.getSelection?.();
+		const value = selection?.toString() ?? '';
+		const anchor = selection?.anchorNode ?? null;
+		if (value.trim() && document.getElementById(`message-${message.id}`)?.contains(anchor)) return value;
+		return message.text;
+	}
+
+	function quote() {
+		const value = quoteSource();
+		if (value) app.quoteIntoComposer(quoteBlock(value));
 	}
 
 	/** Opens an attachment, reading the stored text the first time only. */
@@ -228,10 +254,13 @@
 				</div>
 			{:else}
 				<!-- w-fit keeps the bubble as wide as its text: the statistics line below
-				     must not stretch it. -->
-				<div class="ml-auto w-fit rounded-card bg-accent px-3.5 py-2.5 text-accent-fg">
-					<div class="whitespace-pre-wrap break-words text-body leading-relaxed">{message.text}</div>
-				</div>
+				     must not stretch it. A message that is only attachments gets no bubble at
+				     all, because an empty one reads as a glitch. -->
+				{#if message.text}
+					<div class="ml-auto w-fit rounded-card bg-accent px-3.5 py-2.5 text-accent-fg">
+						<div class="whitespace-pre-wrap break-words text-body leading-relaxed">{message.text}</div>
+					</div>
+				{/if}
 				{#if prefilling || prefillStats}
 					<!-- Reading the prompt happens before any answer exists, so the wait is
 					     shown here, on the message that asked for it. It stays afterwards,
@@ -245,6 +274,22 @@
 						<!-- The actions come first so the speed indicator ends flush with the
 						     right edge, even while the buttons are invisible. -->
 						<span class="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+							<button
+								class="icon-btn-ghost"
+								onclick={copy}
+								title={copied ? 'Copied' : 'Copy this message'}
+								aria-label={copied ? 'Copied' : 'Copy this message'}
+							>
+								<Icon name={copied ? 'check' : 'copy'} size={14} />
+							</button>
+							<button
+								class="icon-btn-ghost"
+								onclick={quote}
+								title="Quote in the message box"
+								aria-label="Quote this message in the message box"
+							>
+								<Icon name="messageSquare" size={14} />
+							</button>
 							<button
 								class="icon-btn-ghost"
 								onclick={startEdit}
@@ -279,6 +324,22 @@
 					</div>
 				{:else}
 					<div class="flex justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+						<button
+							class="icon-btn-ghost"
+							onclick={copy}
+							title={copied ? 'Copied' : 'Copy this message'}
+							aria-label={copied ? 'Copied' : 'Copy this message'}
+						>
+							<Icon name={copied ? 'check' : 'copy'} size={14} />
+						</button>
+						<button
+							class="icon-btn-ghost"
+							onclick={quote}
+							title="Quote in the message box"
+							aria-label="Quote this message in the message box"
+						>
+							<Icon name="messageSquare" size={14} />
+						</button>
 						<button
 							class="icon-btn-ghost"
 							onclick={startEdit}
@@ -358,6 +419,22 @@
 						aria-label={copied ? 'Copied' : 'Copy the answer'}
 					>
 						<Icon name={copied ? 'check' : 'copy'} size={14} />
+					</button>
+					<button
+						class="icon-btn-ghost"
+						onclick={copyPlain}
+						title={copiedPlain ? 'Copied without markup' : 'Copy without the markup'}
+						aria-label={copiedPlain ? 'Copied without markup' : 'Copy the answer without the markup'}
+					>
+						<Icon name={copiedPlain ? 'check' : 'fileText'} size={14} />
+					</button>
+					<button
+						class="icon-btn-ghost"
+						onclick={quote}
+						title="Quote in the message box"
+						aria-label="Quote this answer in the message box"
+					>
+						<Icon name="messageSquare" size={14} />
 					</button>
 				{/if}
 				{#if last && message.text}

@@ -34,12 +34,31 @@
 	/** Sending is allowed while a turn streams: the message is queued instead. */
 	const canSend = $derived(hasContent);
 
-	// Grow with the content, up to a fixed ceiling.
+	/**
+	 * Grows the box with its content, up to a ceiling. A measurement of nothing keeps
+	 * the height on auto: an inline 0px would take the field out of the page, and
+	 * nothing here would ever put it back.
+	 */
 	$effect(() => {
+		void text.length;
 		if (!area) return;
 		const target = area;
 		target.style.height = 'auto';
-		target.style.height = `${Math.min(target.scrollHeight, 280)}px`;
+		const wanted = Math.min(target.scrollHeight, 280);
+		if (wanted > 0) target.style.height = `${wanted}px`;
+	});
+
+	// A quote asked for from a message lands here, below whatever is typed.
+	$effect(() => {
+		const quote = app.pendingQuote;
+		if (quote === null) return;
+		app.pendingQuote = null;
+		text = text.trim() ? `${text.trimEnd()}\n\n${quote}\n` : `${quote}\n`;
+		requestAnimationFrame(() => {
+			if (!area) return;
+			area.focus();
+			area.setSelectionRange(area.value.length, area.value.length);
+		});
 	});
 
 	/**

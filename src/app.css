@@ -568,6 +568,12 @@ button:disabled * {
 .md pre code {
 	@apply font-mono;
 }
+/* No hover on touch, so the copy button of a fence stays visible there. */
+@media (hover: none) {
+	.md .md-copy {
+		@apply opacity-100;
+	}
+}
 .md blockquote {
 	@apply border-l-2 border-accent/50 pl-3 text-muted;
 }
