@@ -137,8 +137,22 @@ async function generationOptions(model: string, conversationId: string, support?
 	return payload;
 }
 
-function isToolRejection(message: string): boolean {
-	return /tool|function/i.test(message) && /(not support|unsupported|invalid|unknown|unexpected|extra|disable)/i.test(message);
+/**
+ * How a provider says it cannot take tools. A refusal word and a tool word have to
+ * sit within a few characters of each other, either way round, because an ordinary
+ * failure can hold both words far apart: "an unexpected error in the worker that
+ * serves the tool server" must not cost a turn its tools.
+ */
+const TOOL_REJECTIONS = [
+	/\b(?:tools?\b|function[ _]?call(?:ing)?|tool_choice)[^.\n]{0,24}(?:not support|unsupported|unrecognized|unknown|invalid|unexpected|not available|unavailable|disabled|does not (?:recogni[sz]e|support|know))/i,
+	/(?:not support|unsupported|unrecognized|unknown|invalid|unexpected|not available|unavailable|disabled|does not (?:recogni[sz]e|support|know))[^.\n]{0,24}\b(?:tools?|function[ _]?call(?:ing)?|tool_choice)\b/i,
+	// A server that does not know the field at all answers with a schema error.
+	/extra (inputs|fields) are not permitted/i
+];
+
+/** True when the provider refused the tools of the request, not the request itself. */
+export function isToolRejection(message: string): boolean {
+	return TOOL_REJECTIONS.some((shape) => shape.test(message));
 }
 
 /**
@@ -465,10 +479,15 @@ function closeDanglingToolCalls(conversationId: string): void {
 			.filter((message) => message.role === 'tool' && message.toolCallId)
 			.map((message) => message.toolCallId as string)
 	);
-	const last = messages[messages.length - 1];
-	if (!last || last.role !== 'assistant') return;
-	for (const call of last.toolCalls ?? []) {
-		if (answered.has(call.id)) continue;
-		writeToolRow(conversationId, call, 'Error: the turn stopped before this tool ran.', true);
+	// The list is the active line of the chat, so every row in it is one the
+	// provider is about to see.
+	for (const message of messages) {
+		if (message.role !== 'assistant') continue;
+		for (const call of message.toolCalls ?? []) {
+			if (answered.has(call.id)) continue;
+			// Marked here as well, so a call id that appears twice is closed once.
+			answered.add(call.id);
+			writeToolRow(conversationId, call, 'Error: the turn stopped before this tool ran.', true);
+		}
 	}
 }

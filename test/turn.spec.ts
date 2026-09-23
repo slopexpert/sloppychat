@@ -287,6 +287,28 @@ describe('a turn that asks for a tool', () => {
 		expect(messages[2].isError).toBe(true);
 		expect(messages[2].text).toContain('stopped before this tool ran');
 	});
+
+	it('closes an unanswered call in an older row as well', async () => {
+		replies = [{ content: 'ANSWER' }];
+		const provider = store.createProvider({ name: 'Mock', baseUrl: 'http://127.0.0.1:1/v1' });
+		const conversation = store.createConversation({ providerId: provider.id, model: 'mock-model' });
+		// Two rounds were killed before their tools ran, so two rows wait for a result.
+		store.appendMessage({ conversationId: conversation.id, role: 'user', text: 'read the skill' });
+		store.appendMessage({ conversationId: conversation.id, role: 'assistant', toolCalls: [storedCall] });
+		store.appendMessage({ conversationId: conversation.id, role: 'user', text: 'and again' });
+		store.appendMessage({
+			conversationId: conversation.id,
+			role: 'assistant',
+			toolCalls: [{ ...storedCall, id: 'call_2' }]
+		});
+
+		hub.startTurn({ conversationId: conversation.id });
+		await settle(conversation.id);
+
+		const closed = store.listMessages(conversation.id).filter((message) => message.role === 'tool');
+		expect(closed.map((message) => message.toolCallId)).toEqual(['call_1', 'call_2']);
+		expect(closed.every((message) => message.isError === true)).toBe(true);
+	});
 });
 
 /** Waits for a condition that another part of the turn sets. */
