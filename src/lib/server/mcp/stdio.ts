@@ -41,7 +41,15 @@ export class StdioConnection implements McpConnection {
 		});
 		this.#child.on('exit', () => this.#failAll(new Error(this.#stopMessage())));
 		this.#child.on('error', (error) => this.#failAll(error));
-		const lines = createInterface({ input: this.#child.stdout ?? process.stdin });
+		// The two pipes are asked for when the process starts. A child without them is
+		// a bug in this file, and falling back to the console of the app would hide it
+		// while reading the operator's own keyboard as protocol text.
+		const stdout = child.stdout;
+		if (!stdout || !child.stdin) {
+			child.kill('SIGKILL');
+			throw new Error('The MCP server started without a pipe to talk to it');
+		}
+		const lines = createInterface({ input: stdout });
 		lines.on('line', (line) => this.#handleLine(line));
 	}
 
@@ -144,8 +152,7 @@ export class StdioConnection implements McpConnection {
 
 	#write(message: unknown): void {
 		if (!this.alive) throw new Error(this.#stopMessage());
-		this.#child.stdin?.write(`${JSON.stringify(message)}\n`);
-	}
+		this.#child.stdin?.write(`${JSON.stringify(message)}\n`);	}
 
 	notify(method: string, params?: unknown): void {
 		this.#write({ jsonrpc: '2.0', method, params });
