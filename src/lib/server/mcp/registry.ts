@@ -160,7 +160,3 @@ export function closeMcpServers(): void {
 	for (const state of live.values()) state.connection?.close();
 	live.clear();
 }
-
-export function mcpStatus(): { connections: number } {
-	return { connections: [...live.values()].filter((state) => !state.failed && state.connection?.alive).length };
-}

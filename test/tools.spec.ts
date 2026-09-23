@@ -3,15 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { isApproveKey } from '$lib/client/tools';
-import {
-	TOOL_CATALOG,
-	activeTools,
-	advertisedTools,
-	migrateToolModes,
-	modeFor,
-	toolMode,
-	upstreamToolsFrom
-} from '$lib/shared/tools';
+import { TOOL_CATALOG, activeTools, advertisedTools, migrateToolModes, toolMode, upstreamToolsFrom } from '$lib/shared/tools';
 
 /**
  * A tool is off, asked first, or on. Only the tools that are not off go to the
@@ -51,11 +43,13 @@ describe('tool modes', () => {
 			'web_fetch',
 			'files_read'
 		]);
-		expect(modeFor('files_read', {}, extra)).toBe('ask');
-		expect(modeFor('files_read', { files_read: 'on' }, extra)).toBe('on');
-		expect(modeFor('files_read', { files_read: 'off' }, extra)).toBe('off');
-		// A name nobody registered stays out.
-		expect(modeFor('nobody', {}, extra)).toBe('off');
+		// A stored choice wins for a tool that an MCP server brought, and off drops it.
+		expect(
+			advertisedTools({ modes: { files_read: 'on' }, skills: false, extra }).map((tool) => tool.name)
+		).toContain('files_read');
+		expect(
+			advertisedTools({ modes: { files_read: 'off' }, skills: false, extra }).map((tool) => tool.name)
+		).not.toContain('files_read');
 	});
 
 	it('counts the active tools for the menu badge', () => {

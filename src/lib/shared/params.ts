@@ -26,17 +26,6 @@ export function resolveParams(
 	return merged;
 }
 
-/** Counts how many fields a conversation overrides, for the UI badge. */
-export function countOverrides(params: Partial<GenerationParams> | undefined): number {
-	if (!params) return 0;
-	return Object.values(params).filter((value) => {
-		if (value === undefined || value === null) return false;
-		if (Array.isArray(value)) return value.length > 0;
-		if (typeof value === 'string') return value.trim() !== '';
-		return true;
-	}).length;
-}
-
 /** True when a JSON text field holds a usable object. */
 export function parseExtra(extra: string): Record<string, unknown> | undefined {
 	const trimmed = extra.trim();

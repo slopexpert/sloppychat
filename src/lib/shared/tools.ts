@@ -108,18 +108,6 @@ export function upstreamToolsFrom(tools: AdvertisedTool[]): UpstreamTool[] {
 	}));
 }
 
-/** The mode of any tool: the stored choice, the catalog entry, or off. */
-export function modeFor(
-	name: string,
-	modes: Record<string, ToolMode> | undefined,
-	extra?: AdvertisedTool[]
-): ToolMode {
-	const stored = modes?.[name];
-	if (stored) return stored;
-	const spec = [...TOOL_CATALOG, ...(extra ?? [])].find((tool) => tool.name === name);
-	return spec?.defaultMode ?? 'off';
-}
-
 /** The mode of a tool: the stored choice, or the default of the catalog entry. */
 export function toolMode(spec: ToolSpec, modes: Record<string, ToolMode> | undefined): ToolMode {
 	return modes?.[spec.name] ?? spec.defaultMode;
@@ -147,13 +135,6 @@ export function migrateToolModes(saved: {
 	fromBoolean('web_search', saved.webSearch);
 	fromBoolean('web_fetch', saved.webFetch);
 	return modes;
-}
-
-export function upstreamTools(names: string[]): UpstreamTool[] {
-	return TOOL_CATALOG.filter((spec) => names.includes(spec.name)).map((spec) => ({
-		type: 'function' as const,
-		function: { name: spec.name, description: spec.description, parameters: spec.parameters }
-	}));
 }
 
 /** Parses tool arguments. Raw JSON text while the stream is still arriving. */
