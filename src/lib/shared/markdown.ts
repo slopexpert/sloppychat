@@ -77,7 +77,7 @@ const EMOJI: Record<string, string> = {
 };
 
 /** Only http, https, mailto and same-origin paths may become clickable. */
-function safeHref(raw: string): string | undefined {
+export function safeHref(raw: string): string | undefined {
 	const url = raw.trim();
 	if (/^(https?:|mailto:)/i.test(url)) return url;
 	if (/^[/#?][^\s]*$/.test(url)) return url;

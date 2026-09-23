@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Icon from './Icon.svelte';
 	import { TOOL_CATALOG, toolSummary } from '$lib/shared/tools';
+	import { safeHref } from '$lib/shared/markdown';
 	import type { ToolCall } from '$lib/shared/types';
 	import type { ToolProgress } from '$lib/client/tools';
 	import type { IconName } from '$lib/shared/icons';
@@ -31,6 +32,8 @@
 			? ((progress?.data as { title: string; url: string; domain: string; snippet: string }[]) ?? [])
 			: []
 	);
+	/** Only a real web address may be clicked, because these links come from the web. */
+	const links = $derived(hits.map((hit) => ({ ...hit, href: safeHref(hit.url) })));
 
 	let open = $state(false);
 
@@ -100,16 +103,20 @@
 		<div class="border-t border-line px-2.5 py-2">
 			{#if hits.length}
 				<ul class="space-y-1.5">
-					{#each hits as hit (hit.url)}
+					{#each links as hit (hit.url)}
 						<li class="leading-snug">
-							<a
-								href={hit.url}
-								target="_blank"
-								rel="noopener noreferrer"
-								class="text-accent underline decoration-accent/40 underline-offset-2"
-							>
-								{hit.title}
-							</a>
+							{#if hit.href}
+								<a
+									href={hit.href}
+									target="_blank"
+									rel="noopener noreferrer"
+									class="text-accent underline decoration-accent/40 underline-offset-2"
+								>
+									{hit.title}
+								</a>
+							{:else}
+								<span class="text-muted" title="This is not a web address">{hit.title}</span>
+							{/if}
 							<div class="text-xs text-faint">{hit.domain}</div>
 							<div class="text-xs text-muted">{hit.snippet}</div>
 						</li>

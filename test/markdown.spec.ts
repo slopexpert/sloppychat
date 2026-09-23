@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { quoteBlock, renderMarkdown, stripMarkdown } from '$lib/shared/markdown';
+import { quoteBlock, renderMarkdown, safeHref, stripMarkdown } from '$lib/shared/markdown';
 
 describe('renderMarkdown', () => {
 	it('escapes html so model output cannot inject markup', () => {
@@ -116,5 +116,23 @@ describe('quoteBlock', () => {
 
 	it('leaves an empty line empty inside the quote', () => {
 		expect(quoteBlock('a\n\nb')).toBe('> a\n>\n> b');
+	});
+});
+
+describe('safeHref', () => {
+	it('allows the addresses a reader means to open', () => {
+		expect(safeHref('https://example.com/a?b=1')).toBe('https://example.com/a?b=1');
+		expect(safeHref(' http://example.com ')).toBe('http://example.com');
+		expect(safeHref('mailto:me@example.com')).toBe('mailto:me@example.com');
+		expect(safeHref('/search?q=1')).toBe('/search?q=1');
+	});
+
+	it('refuses what a search result could hide in', () => {
+		// The same filter guards the links of a tool result, which come from the web.
+		expect(safeHref('javascript:alert(1)')).toBeUndefined();
+		expect(safeHref('JaVaScRiPt:alert(1)')).toBeUndefined();
+		expect(safeHref('data:text/html;base64,PHNjcmlwdD4=')).toBeUndefined();
+		expect(safeHref('file:///etc/passwd')).toBeUndefined();
+		expect(safeHref('')).toBeUndefined();
 	});
 });
