@@ -239,24 +239,32 @@ headers of an MCP server are never sent to the browser: the settings window says
 set, type to replace" and writes only what you type. Clearing one takes the Remove key
 button, or an empty value where the app sends one on purpose.
 
-## Run it in Docker
+## Run it in a container
 
 `compose.yaml` runs the app with one volume. The image has two stages: `npm ci` plus
 `npm run build`, then a slim runtime that carries the production modules and the build
-output and nothing else.
+output and nothing else. The commands say `docker`; on rootless podman they reach podman
+through its docker shim, which is what this project runs on.
 
 ```bash
-export SLOPPYCHAT_TOKEN=$(openssl rand -hex 24)
+cp .env.example .env	# then set SLOPPYCHAT_TOKEN there
 docker compose up -d --build
 ```
 
-Open `http://<host>:3000/`, type the token into the field, and the browser keeps it in
-a cookie for 30 days.
+Keep the token in `.env` rather than in your shell. Compose interpolates on every
+subcommand, so `docker compose logs` and `docker compose down` fail when the variable was
+exported in another terminal.
+
+Open `http://<host>:3000/`, type the token into the field, and the browser keeps it in a
+cookie for 30 days.
 
 **The token is not optional in a container.** With no token the door serves loopback
 only, and inside a container every request arrives from the bridge address, so nothing
 looks like loopback and every request gets 403. `compose.yaml` refuses to start with the
 variable unset, so the mistake cannot pass quietly.
+
+`3000:3000` publishes on every interface, which is what lets your phone reach the app, and
+the token is the guard. For the machine alone, change the line to `127.0.0.1:3000:3000`.
 
 | Task | Command |
 | --- | --- |
@@ -264,23 +272,46 @@ variable unset, so the mistake cannot pass quietly.
 | Stop | `docker compose down` |
 | New version | `git pull && docker compose up -d --build` |
 | Where the data lives | the named volume `sloppychat-data`, mounted at `/app/data` |
-| Back it up | `docker compose down` first, then copy the file out (below) |
-| Restore it | copy the file into the volume, then `docker compose up -d` |
+| Back it up | stop first, then the copy below |
+| Restore it | the same copy, the other way |
+
+SQLite keeps its whole state in one file, and a copy taken while that file is being
+written can be a torn one, so stop the app first. The copy goes through a throwaway
+container because `docker cp` from a stopped container fails through the shim.
 
 ```bash
-docker run --rm -v sloppychat-data:/data -v "$PWD:/backup" alpine \
-	cp /data/sloppychat.db /backup/sloppychat.db
+docker compose stop
+docker run --rm -v sloppychat-data:/data:z -v "$PWD:/backup:z" \
+	docker.io/library/alpine cp /data/sloppychat.db /backup/sloppychat.db
+docker compose start
 ```
 
-Stop the app before the copy. SQLite keeps its whole state in one file, and a copy taken
-while that file is being written can be a torn one.
-
-To keep the database beside the checkout instead, swap the volume line for
-`- ./var:/app/data` and give the directory to the user the image runs as:
+Restore puts the file back and hands it to the user the app runs as:
 
 ```bash
-sudo chown -R 1000:1000 var
+docker compose stop
+docker run --rm -v sloppychat-data:/data:z -v "$PWD:/backup:z" \
+	docker.io/library/alpine sh -c \
+	'cp /backup/sloppychat.db /data/sloppychat.db && chown 1000:1000 /data/sloppychat.db'
+docker compose start
 ```
+
+Both commands need `:z` on the `$PWD` mount. Without it SELinux refuses the write with
+`EACCES`, which reads like a disk problem and is not one.
+
+### Keep the database beside the checkout
+
+Swap the volume entry for a bind mount, and mind both flags:
+
+```yaml
+volumes:
+  - ./var:/app/data:z,U
+```
+
+`:z` relabels the directory for the container. `,U` hands it to the user id the container
+runs as: the app uid cannot write a directory you own, and container root cannot `chown`
+it either. The files then belong to a subuid from your range instead of to you, which is
+normal for rootless podman. On plain Docker, drop `,U` and run `sudo chown -R 1000:1000 var`.
 
 ### Behind a proxy
 

@@ -12,7 +12,7 @@ services:
       # Required. Every request inside a container arrives from the bridge address,
       # so the door has nothing it can recognise as this machine. Without a token the
       # image answers 403 to everything, including your own browser.
-      SLOPPYCHAT_TOKEN: ${SLOPPYCHAT_TOKEN:?make one with: openssl rand -hex 24}
+      SLOPPYCHAT_TOKEN: '${SLOPPYCHAT_TOKEN:?make one with openssl rand -hex 24}'
       # Set when the app sits behind a proxy, for example https://chat.example.com
       # ORIGIN: https://chat.example.com
     volumes:
@@ -38,3 +38,6 @@ services:
 
 volumes:
   sloppychat-data:
+    # Name it here so the volume is `sloppychat-data` and not
+    # `<directory>_sloppychat-data`. The backup commands in README use this name.
+    name: sloppychat-data
