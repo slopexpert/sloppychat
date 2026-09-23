@@ -468,7 +468,7 @@ describe('light and dark variants', () => {
 		// The boot script reads no mode either.
 		expect(appHtml).not.toContain('stored.mode');
 		// And the settings UI has no mode control.
-		const modal = readFileSync('src/lib/components/SettingsModal.svelte', 'utf8');
+		const modal = readFileSync('src/lib/components/settings/SettingsAppearance.svelte', 'utf8');
 		expect(modal).not.toContain('Light and dark');
 		expect(modal).not.toContain('setTheme({ mode');
 	});

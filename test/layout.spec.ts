@@ -28,7 +28,7 @@ describe('top bar', () => {
 
 	it('shows the same tool list in the menu and in settings', () => {
 		// One component holds the three modes, so the two places cannot disagree.
-		const settings = readFileSync('src/lib/components/SettingsModal.svelte', 'utf8');
+		const settings = readFileSync('src/lib/components/settings/SettingsTools.svelte', 'utf8');
 		expect(topBar).toContain('<ToolsMenu />');
 		expect(settings).toContain('<ToolList />');
 	});
