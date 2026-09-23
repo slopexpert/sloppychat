@@ -11,6 +11,9 @@ import type { Message, ModelInfo, Provider, RuntimeTimings, UpstreamTool, Usage 
 /** How long a provider may take to start answering, in milliseconds. */
 const ANSWER_WAIT_MS = 30_000;
 
+/** How much of a failing provider answer is worth keeping in the log. */
+const UPSTREAM_LOG_CHARS = 4_000;
+
 /**
  * A wait limit for one request. A provider that is up but busy takes a moment;
  * a provider that is gone would hold the turn open for as long as the process
@@ -173,8 +176,18 @@ export async function listModels(provider: Provider, signal?: AbortSignal): Prom
 	return models;
 }
 
+/**
+ * Turns a failed provider answer into one line of text.
+ *
+ * The whole answer goes to the server log first: a trace from a provider can be
+ * long, and it can name paths and addresses of the machine that provider runs on.
+ * The caller keeps the short form, because the reason a provider failed is usually
+ * the one thing that tells the reader what to change.
+ */
 export async function httpError(res: Response, what: string): Promise<string> {
-	const body = (await res.text()).slice(0, 800).trim();
+	const raw = (await res.text()).trim();
+	console.error(`[provider] ${what}: HTTP ${res.status}\n${raw.slice(0, UPSTREAM_LOG_CHARS)}`);
+	const body = raw.slice(0, 800);
 	let detail = body;
 	try {
 		const parsed = asRecord(JSON.parse(body));
