@@ -510,8 +510,25 @@ function ftsQuery(text: string): string {
 		.join(' ');
 }
 
+/** How many chats one search returns when the caller asked for nothing. */
+export const DEFAULT_SEARCH_HITS = 30;
+
+/** How many chats one search may return, however the caller asked. */
+const MAX_SEARCH_HITS = 100;
+
+/**
+ * Brings a requested number of hits into the range the app can show. The number can
+ * come from an address bar, so a negative one would cut the end off the list and a
+ * missing one would ask for the whole database.
+ */
+function clampLimit(limit: number): number {
+	if (!Number.isFinite(limit)) return DEFAULT_SEARCH_HITS;
+	return Math.max(1, Math.min(MAX_SEARCH_HITS, Math.trunc(limit)));
+}
+
 /** The chats whose title or messages match, best first, with one line each. */
-export function searchChats(text: string, limit = 30): ChatHit[] {
+export function searchChats(text: string, limit = DEFAULT_SEARCH_HITS): ChatHit[] {
+	const wanted = clampLimit(limit);
 	const query = ftsQuery(text);
 	if (!query) return [];
 	const hits = new Map<string, ChatHit>();
@@ -564,7 +581,7 @@ export function searchChats(text: string, limit = 30): ChatHit[] {
 			hits: 1
 		});
 	}
-	return [...hits.values()].slice(0, limit);
+	return [...hits.values()].slice(0, wanted);
 }
 
 /* ---------------------------------------------------------------- mcp ----- */

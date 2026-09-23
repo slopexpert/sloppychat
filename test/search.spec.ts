@@ -139,3 +139,29 @@ describe('tags', () => {
 		expect(store.setTags(conversation.id, [' Work ', 'work', 'Pets'])?.tags).toEqual(['work', 'pets']);
 	});
 });
+
+describe('the bound of a search', () => {
+	beforeEach(() => {
+		// Enough matches to see where the list is cut.
+		for (let i = 0; i < 105; i++) chat(`Widget note ${i}`, `the widget of number ${i}`);
+	});
+
+	it('takes the number of chats the caller asked for', () => {
+		expect(store.searchChats('widget', 7)).toHaveLength(7);
+	});
+
+	it('keeps a negative number from cutting the end off the list', () => {
+		// slice(0, -1) would drop the last chat and hand over the other 104.
+		expect(store.searchChats('widget', -1)).toHaveLength(1);
+		expect(store.searchChats('widget', 0)).toHaveLength(1);
+	});
+
+	it('holds the list to one hundred chats', () => {
+		expect(store.searchChats('widget', 100_000)).toHaveLength(100);
+	});
+
+	it('falls back to the default when the number is not a number', () => {
+		expect(store.searchChats('widget', Number.NaN)).toHaveLength(30);
+		expect(store.searchChats('widget', Number.POSITIVE_INFINITY)).toHaveLength(30);
+	});
+});
