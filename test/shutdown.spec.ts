@@ -60,3 +60,24 @@ describe('stopping the process', () => {
 		expect(target.exits, 'no exit was asked for').toEqual([]);
 	});
 });
+
+describe('arming the app', () => {
+	it('arms the MCP child cleanup once, and stops on the signal', async () => {
+		const close = vi.fn();
+		vi.resetModules();
+		vi.doMock('$lib/server/mcp/registry', () => ({ closeMcpServers: close }));
+		const { armShutdown } = await import('$lib/server/lifecycle');
+		const target = fakeProcess();
+
+		armShutdown(target as unknown as NodeJS.Process);
+		// The request hook runs again for every request, and only one stop is wanted.
+		armShutdown(target as unknown as NodeJS.Process);
+
+		expect(target.handlers.get('SIGTERM')).toHaveLength(1);
+		target.emit('SIGTERM');
+		expect(close, 'the children go before the process does').toHaveBeenCalledTimes(1);
+		expect(target.exits).toEqual([0]);
+
+		vi.doUnmock('$lib/server/mcp/registry');
+	});
+});
