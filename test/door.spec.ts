@@ -1,8 +1,10 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { CLOSED_TEXT, TOKEN_ERROR } from '$lib/shared/types';
 import { loopback, door, TOKEN_COOKIE } from '$lib/server/gate';
+import { door as panel } from '$lib/client/door.svelte';
 
 /**
  * The door in front of the install. A port on a network is an open door to every
@@ -133,5 +135,99 @@ describe('the door of one request', () => {
 
 		expect(response.status).toBe(401);
 		expect(await response.text()).toContain('did not match');
+	});
+
+	it('answers an API call with one JSON line instead of the page', async () => {
+		process.env.SLOPPYCHAT_TOKEN = 'letmein';
+
+		const response = (await ask('http://192.168.1.5:3000/api/settings', { address: '192.168.1.30' })) as Response;
+
+		expect(response.status).toBe(401);
+		expect(response.headers.get('content-type'), 'code reads JSON, a person reads the field').toContain(
+			'application/json'
+		);
+		expect(await response.json()).toEqual({ error: TOKEN_ERROR });
+	});
+
+	it('answers an API call the same way when no token exists', async () => {
+		const response = (await ask('http://192.168.1.5:3000/api/conversations', {
+			address: '192.168.1.30'
+		})) as Response;
+
+		expect(response.status).toBe(403);
+		expect((await response.json()).error).toContain('SLOPPYCHAT_TOKEN');
+		expect(CLOSED_TEXT).toContain('SLOPPYCHAT_TOKEN');
+	});
+});
+
+describe('the door seen from the app', () => {
+	/** The panel state is one object, so each case starts from a clean one. */
+	function reset(): void {
+		panel.needsToken = false;
+		panel.wrong = false;
+		panel.busy = false;
+	}
+
+	beforeEach(() => {
+		reset();
+		vi.stubGlobal('location', { pathname: '/app/chat', reload: vi.fn() });
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+		vi.restoreAllMocks();
+	});
+
+	it('reads a 401 as the door, and nothing else', () => {
+		expect(panel.deny(500)).toBe(false);
+		expect(panel.needsToken).toBe(false);
+		expect(panel.deny(401)).toBe(true);
+		expect(panel.needsToken, 'the panel opens').toBe(true);
+	});
+
+	it('sends the token on the path the reader is on', async () => {
+		const seen: string[] = [];
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async (input: string) => {
+				seen.push(input);
+				return new Response('the app', { status: 200 });
+			})
+		);
+		panel.deny(401);
+
+		const ok = await panel.submit('let me in');
+
+		expect(ok).toBe(true);
+		expect(seen, 'spaces are escaped').toEqual(['/app/chat?token=let%20me%20in']);
+		expect(panel.needsToken).toBe(false);
+		expect(location.reload, 'the failed requests run again with the cookie').toHaveBeenCalled();
+	});
+
+	it('says the token was wrong and stays open', async () => {
+		vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 401 })));
+		panel.deny(401);
+
+		const ok = await panel.submit('guess');
+
+		expect(ok).toBe(false);
+		expect(panel.wrong).toBe(true);
+		expect(panel.needsToken, 'the panel waits for a better token').toBe(true);
+		expect(location.reload).not.toHaveBeenCalled();
+	});
+
+	it('leaves the panel state alone when the request itself fails', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => {
+				throw new Error('offline');
+			})
+		);
+		panel.deny(401);
+
+		await expect(panel.submit('letmein')).rejects.toThrow('offline');
+
+		expect(panel.busy, 'a failed attempt does not wedge the button').toBe(false);
+		expect(panel.wrong, 'an unreachable server is not a wrong token').toBe(false);
 	});
 });

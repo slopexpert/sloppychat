@@ -2,6 +2,7 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import Toasts from '$lib/components/Toasts.svelte';
+	import TokenGate from '$lib/components/TokenGate.svelte';
 	import { app } from '$lib/client/state.svelte';
 	import { pageTitle } from '$lib/shared/title';
 
@@ -61,4 +62,5 @@
 	</a>
 	{@render children()}
 	<Toasts />
+	<TokenGate />
 </div>

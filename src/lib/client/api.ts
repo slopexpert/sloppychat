@@ -1,4 +1,5 @@
 import type { Skill } from '$lib/shared/skills';
+import { door } from './door.svelte';
 import type { PromptEntry, PromptKind } from '$lib/shared/prompts';
 import type {
 	ChatHit,
@@ -33,21 +34,29 @@ export class ApiError extends Error {
 	}
 }
 
+/**
+ * Builds the error one failed response stands for. A 401 also opens the token
+ * panel, because the only reading of that status from our own server is that the
+ * door wants a token.
+ */
+async function failure(res: Response): Promise<ApiError> {
+	door.deny(res.status);
+	let message = `HTTP ${res.status}`;
+	try {
+		const body = (await res.json()) as { error?: string };
+		if (body.error) message = body.error;
+	} catch {
+		/* keep the status text */
+	}
+	return new ApiError(message, res.status);
+}
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
 	const res = await fetch(url, {
 		...init,
 		headers: init?.body instanceof FormData ? init.headers : { 'content-type': 'application/json', ...init?.headers }
 	});
-	if (!res.ok) {
-		let message = `HTTP ${res.status}`;
-		try {
-			const body = (await res.json()) as { error?: string };
-			if (body.error) message = body.error;
-		} catch {
-			/* keep the status text */
-		}
-		throw new ApiError(message, res.status);
-	}
+	if (!res.ok) throw await failure(res);
 	if (res.status === 204) return undefined as T;
 	return (await res.json()) as T;
 }
@@ -272,16 +281,7 @@ export async function getStream(
 	onEvent: (event: StreamEvent) => void
 ): Promise<void> {
 	const res = await fetch(url, { headers: { accept: 'text/event-stream' }, signal });
-	if (!res.ok) {
-		let message = `HTTP ${res.status}`;
-		try {
-			const parsed = (await res.json()) as { error?: string };
-			if (parsed.error) message = parsed.error;
-		} catch {
-			/* keep the status text */
-		}
-		throw new ApiError(message, res.status);
-	}
+	if (!res.ok) throw await failure(res);
 	await readEventStream(res, onEvent);
 }
 
@@ -298,16 +298,7 @@ export async function postStream(
 		body: JSON.stringify(body),
 		signal
 	});
-	if (!res.ok) {
-		let message = `HTTP ${res.status}`;
-		try {
-			const parsed = (await res.json()) as { error?: string };
-			if (parsed.error) message = parsed.error;
-		} catch {
-			/* keep the status text */
-		}
-		throw new ApiError(message, res.status);
-	}
+	if (!res.ok) throw await failure(res);
 	await readEventStream(res, onEvent);
 }
 

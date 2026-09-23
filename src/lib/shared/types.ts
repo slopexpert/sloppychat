@@ -417,3 +417,9 @@ export interface ChatRequest {
 	/** Continue this answer, which stopped at the length limit. */
 	continueMessageId?: string;
 }
+
+/** What the door says when a request carries no token it can use. */
+export const TOKEN_ERROR = 'Token required';
+
+/** What the door says when the install answers its own machine only. */
+export const CLOSED_TEXT = 'This install answers its own machine. Set SLOPPYCHAT_TOKEN to let other devices in.';

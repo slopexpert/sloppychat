@@ -1353,6 +1353,9 @@ export class AppState {
 	/* ------------------------------------------------------------------ toasts */
 
 	toast(kind: Toast['kind'], text: string): void {
+		// One line on screen is enough. A start that meets a closed door fails every
+		// request it makes at once, and each of them would add the same toast.
+		if (this.toasts.some((toast) => toast.kind === kind && toast.text === text)) return;
 		const id = ++this.#toastId;
 		this.toasts = [...this.toasts, { id, kind, text }];
 		setTimeout(() => this.dismiss(id), TOAST_MS);

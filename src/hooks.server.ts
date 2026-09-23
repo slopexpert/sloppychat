@@ -1,29 +1,9 @@
 import { redirect, type Handle } from '@sveltejs/kit';
 import { getDB } from '$lib/server/db';
-import { door, TOKEN_COOKIE } from '$lib/server/gate';
+import { door, refuses, TOKEN_COOKIE, wantsToken } from '$lib/server/gate';
 
 /** How long an approved browser is remembered, so the token is typed once. */
 const REMEMBER_DAYS = 30;
-
-/** The one screen the door shows while it waits for the token. */
-function askPage(wrong: boolean): string {
-	return `<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>sloppychat</title>
-<style>
-	body { font: 15px/1.5 system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; margin: 0; background: #141414; color: #eaeaea; }
-	form { display: grid; gap: .6rem; width: min(88vw, 20rem); }
-	input, button { font: inherit; padding: .5rem .7rem; border-radius: .5rem; border: 1px solid #333; background: #1e1e1e; color: inherit; }
-	.warn { color: #ff6b6b; margin: 0; }
-</style>
-<form method="get">
-	<strong>sloppychat</strong>
-	${wrong ? '<p class="warn">The token did not match.</p>' : ''}
-	<input name="token" type="password" placeholder="token" autocomplete="current-password" autofocus>
-	<button type="submit">Open</button>
-</form>`;
-}
 
 /**
  * Opens the database on the first request so dev boots stay fast, and holds the
@@ -42,14 +22,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		query: given
 	});
 
-	if (state === 'closed') {
-		return new Response('This install answers its own machine. Set SLOPPYCHAT_TOKEN to let other devices in.', {
-			status: 403
-		});
-	}
-	if (state === 'ask') {
-		return new Response(askPage(!!given), { status: 401, headers: { 'content-type': 'text/html; charset=utf-8' } });
-	}
+	if (state === 'closed') return refuses(event.url.pathname);
+	if (state === 'ask') return wantsToken(event.url.pathname, !!given);
 	if (token && given) {
 		// The token came from the address bar: remember it, then clean the address so
 		// the secret does not stay in the browser history.
