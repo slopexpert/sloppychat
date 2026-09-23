@@ -1,3 +1,5 @@
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { describe, expect, it } from 'vitest';
 import { BlockedAddressError, SafeFetchError, blockedReason, safeFetch } from '$lib/server/safe-fetch';
 
@@ -89,4 +91,30 @@ describe('blockedReason with private hosts allowed', () => {
 		expect(blockedReason('1.1.1.1', false)).toBeUndefined();
 		expect(blockedReason('2606:4700::1111', false)).toBeUndefined();
 	});
+});
+
+describe('the size limit of a fetched page', () => {
+	it('cuts the body at the cap instead of one chunk past it', async () => {
+		const server = createServer((_req, res) => {
+			res.writeHead(200, { 'content-type': 'text/plain' });
+			// One chunk far larger than the cap the reader asked for.
+			res.end('x'.repeat(64 * 1024));
+		});
+		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+		const address = server.address() as AddressInfo;
+		try {
+			const result = await safeFetch(`http://127.0.0.1:${address.port}/`, {
+				allowPrivate: true,
+				allowedPorts: [address.port],
+				maxBytes: 8 * 1024,
+				timeoutMs: 3000
+			});
+
+			// The chunk used to go in whole first, which left 64 KiB in the buffer.
+			expect(result.body.byteLength).toBe(8 * 1024);
+			expect(result.truncated).toBe(true);
+		} finally {
+			server.close();
+		}
+	}, 10_000);
 });

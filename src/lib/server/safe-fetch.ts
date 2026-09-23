@@ -313,14 +313,19 @@ function requestOnce(
 			let truncated = false;
 			source.on('data', (chunk: Buffer) => {
 				if (truncated) return;
-				chunks.push(new Uint8Array(chunk));
-				size += chunk.byteLength;
-				if (size >= maxBytes) {
+				// Only what still fits is kept, so one large chunk cannot overshoot.
+				const room = maxBytes - size;
+				if (chunk.byteLength > room) {
 					truncated = true;
+					if (room > 0) chunks.push(new Uint8Array(chunk.subarray(0, room)));
+					size += Math.max(0, room);
 					res.destroy();
 					decode?.destroy();
 					finish();
+					return;
 				}
+				chunks.push(new Uint8Array(chunk));
+				size += chunk.byteLength;
 			});
 			const finish = () => {
 				if (settled) return;
