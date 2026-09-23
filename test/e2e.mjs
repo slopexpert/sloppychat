@@ -852,8 +852,21 @@ try {
 		JSON.stringify(mcpHistory.body.messages.at(-1)?.text)
 	);
 
-	// A config can be tried before it is saved.
+	// A saved server can be tried again on request. The config stays on the server,
+	// so the page only ever names the server it wants tried.
 	const tested = await json(`${APP}/api/mcp/test`, {
+		method: 'POST',
+		headers: { 'content-type': 'application/json' },
+		body: JSON.stringify({ id: echoServer.id })
+	});
+	check(
+		'a saved server can be tested by its id',
+		tested.status === 200 && tested.body.tools?.length === 5,
+		JSON.stringify(tested.body).slice(0, 160)
+	);
+
+	// A config that was never saved cannot be run at all.
+	const unsaved = await json(`${APP}/api/mcp/test`, {
 		method: 'POST',
 		headers: { 'content-type': 'application/json' },
 		body: JSON.stringify({
@@ -861,11 +874,7 @@ try {
 			config: { transport: 'stdio', command: process.execPath, args: ['test/fixtures/mcp-echo.mjs'] }
 		})
 	});
-	check(
-		'a config can be tested before it is saved',
-		tested.status === 200 && tested.body.tools?.length === 5,
-		JSON.stringify(tested.body).slice(0, 160)
-	);
+	check('an unsaved config cannot be tested', unsaved.status === 400, JSON.stringify(unsaved.body).slice(0, 120));
 
 	// Remove it again, so the checks below see the same world as before.
 	await json(`${APP}/api/mcp/${echoServer.id}`, { method: 'DELETE' });
